@@ -1,0 +1,5 @@
+pandas
+numpy
+huggingface_hub
+fastparquet
+scikit-learn
