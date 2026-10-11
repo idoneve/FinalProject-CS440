@@ -19,7 +19,7 @@ def loading_animation(stop):
     sys.stdout.flush()
 
 
-def load_data():
+def load_data(curated_only=False, sample_size=None):
     stop = threading.Event()
 
     spinner_thread = threading.Thread(target=loading_animation, args=(stop,))
@@ -27,6 +27,8 @@ def load_data():
     spinner_thread.start()
 
     try:
+        # if curated_only:
+            
         df = pd.read_parquet(
             "hf://datasets/ShyAgarwal/specmine/data/spec_files.parquet",
             engine="fastparquet",
