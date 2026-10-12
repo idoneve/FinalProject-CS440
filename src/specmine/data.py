@@ -222,12 +222,13 @@ def split_train_test(df, test_size=0.2):
 
     if "file_content_sha" in df.columns:
         repo_by_sha = {}
-        for repo, sha in df[["repo_name", "file_content_sha"]].dropna().itertuples(
-            index=False, name=None
+        for repo, sha in (
+            df[["repo_name", "file_content_sha"]]
+            .dropna()
+            .itertuples(index=False, name=None)
         ):
             previous_repo = repo_by_sha.setdefault(sha, repo)
             union(repo, previous_repo)
-
     repos_by_group = {}
     for repo in parents:
         repos_by_group.setdefault(find(repo), []).append(repo)
@@ -235,7 +236,6 @@ def split_train_test(df, test_size=0.2):
     for repos in repos_by_group.values():
         is_test = _repo_bucket(min(repos)) < test_size
         repo_is_test.update((repo, is_test) for repo in repos)
-
     df = df.copy()
     df["_is_test"] = df["repo_name"].map(repo_is_test).fillna(False)
     train = df[~df["_is_test"]].drop(columns="_is_test").reset_index(drop=True)
