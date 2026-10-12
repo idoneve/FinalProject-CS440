@@ -46,7 +46,7 @@ The loader needs an internet connection to access the dataset.
 Run the local tests with:
 
 ```bash
-python -m pytest -m "not network"
+pytest -v
 ```
 
 ## Dataset Attribution & Citations
