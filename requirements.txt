@@ -1,5 +1,7 @@
 pandas
-numpy
-huggingface_hub
 fastparquet
+requests
+huggingface_hub
 scikit-learn
+pytest
+pytest-cov

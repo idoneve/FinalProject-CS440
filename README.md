@@ -9,19 +9,41 @@ Software developers are increasingly using AI agents to write technical specific
 
 ## Installation
 
-To install the necessary Python packages, run:
+From the `FinalProject-CS440` directory (the directory containing this README),
+install the package and its dependencies into the Python environment you intend
+to use:
 
 ```bash
-pip install -r requirements.txt
+cd path/to/FinalProject-CS440
+python -m pip install -e ".[dev]"
 ```
 
-To test that your environment connects to the dataset correctly, run:
+In VS Code, select that same Python environment as the project interpreter and
+notebook kernel.
+
+Import `load_data` from the installed `specmine` package:
 
 ```bash
-python -u load_data.py
+python -c 'from specmine.data import load_data; df = load_data(sample_size=5, seed=0); print(df.head() if df is not None else "Dataset load failed")'
 ```
 
-Or use the notebook
+The default call reads the full parquet dataset. Use `curated_only=True` to load
+the curated repositories and download their spec files into `./data`:
+
+```python
+from specmine.data import load_data
+
+df = load_data(curated_only=True, sample_size=500, seed=0)
+```
+
+Alternatively, open `notebooks/example.ipynb` after installing the package.
+The loader needs an internet connection to access the dataset.
+
+Run the local tests with:
+
+```bash
+python -m pytest -m "not network"
+```
 
 ## Dataset Attribution & Citations
 
