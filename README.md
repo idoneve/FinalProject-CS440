@@ -18,8 +18,12 @@ cd path/to/FinalProject-CS440
 python -m pip install -e ".[dev]"
 ```
 
-In VS Code, select that same Python environment as the project interpreter and
-notebook kernel.
+The example notebook adds this repository's `src/` folder to its import path,
+so it does not rely on an editable install to find `specmine`. It prints the
+Python interpreter used by its kernel; if imports fail for missing dependencies,
+install them into that interpreter with
+`<python-from-notebook-output> -m pip install -r requirements.txt`. In VS Code,
+choose the intended environment using **Select Kernel** in the notebook.
 
 Import `load_data` from the installed `specmine` package:
 
