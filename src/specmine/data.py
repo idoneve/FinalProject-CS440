@@ -1,6 +1,8 @@
 import hashlib
+import os
 import re
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -63,12 +65,15 @@ def _blob_to_raw(url: str) -> str:
 def _safe_local_filename(repo_name: str, file_path: str, sha: str) -> str:
     """
     Build a filesystem-safe, unique filename.
-    Includes a short SHA prefix so multiple spec files per repo don't collide.
+    Includes hashes of the full path and SHA so specs with the same basename
+    or abbreviated SHA do not collide.
     """
     owner, _, repo = repo_name.partition("/")
     short_sha = (sha or "nohash")[:8]
     tail = Path(file_path).name or "spec.md"
-    base = f"{owner}__{repo}__{short_sha}__{tail}"
+    path_hash = hashlib.sha256(file_path.encode("utf-8")).hexdigest()
+    sha_hash = hashlib.sha256(sha.encode("utf-8")).hexdigest()
+    base = f"{owner}__{repo}__{short_sha}__{path_hash}__{sha_hash}__{tail}"
     return re.sub(r"[^A-Za-z0-9._-]+", "_", base)
 
 
@@ -79,18 +84,27 @@ def _download_file(url: str, dest: Path) -> bool:
     if dest.exists() and dest.stat().st_size > 0:
         return True
     dest.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
     try:
         r = requests.get(url, timeout=60)
         r.raise_for_status()
         ctype = r.headers.get("Content-Type", "")
         if "text/html" in ctype and not url.endswith(".html"):
             raise ValueError(f"got HTML instead of spec file ({ctype})")
-        dest.write_bytes(r.content)
+        with tempfile.NamedTemporaryFile(
+            dir=dest.parent,
+            prefix=f".{dest.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            temp_file.write(r.content)
+        os.replace(temp_path, dest)
+        temp_path = None
         return True
-    except Exception as e:
-        if dest.exists() and dest.stat().st_size == 0:
-            dest.unlink()
-        raise e
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def _curated_local_dataframe(sample_size=None, seed=None) -> pd.DataFrame:
@@ -126,8 +140,13 @@ def _curated_local_dataframe(sample_size=None, seed=None) -> pd.DataFrame:
     for i, (_, row) in enumerate(df.iterrows(), 1):
         repo = row["repo_name"]
         blob_url = row["file_url"]
-        file_path = row.get("file_path", "") or ""
-        sha = row.get("file_sha", "") or row.get("file_last_commit_sha", "") or ""
+        file_path = row.get("file_path", "")
+        file_path = "" if pd.isna(file_path) else str(file_path)
+        sha = row.get("file_sha", "")
+        sha = "" if pd.isna(sha) else str(sha)
+        if not sha:
+            sha = row.get("file_last_commit_sha", "")
+            sha = "" if pd.isna(sha) else str(sha)
         if not isinstance(blob_url, str) or not blob_url.startswith("http"):
             local_paths.append(None)
             continue
@@ -202,12 +221,15 @@ def split_train_test(df, test_size=0.2):
     - No file_content_sha appears in both splits (content dedup).
     - Rows with duplicate content are assigned entirely to one side.
     - Repositories connected by duplicate content are kept in one group.
-    - Group assignments are deterministic based on the lexically first repo.
+    - Group assignments are deterministic based on a content SHA when present,
+      otherwise on the lexically first repo.
     """
+    if not 0 <= test_size <= 1:
+        raise ValueError("test_size must be between 0 and 1 inclusive")
     if df is None or df.empty:
         return df, df
 
-    parents = {repo: repo for repo in df["repo_name"].dropna().unique()}
+    parents = {}
 
     def find(repo):
         while parents[repo] != repo:
@@ -220,24 +242,49 @@ def split_train_test(df, test_size=0.2):
         if left_root != right_root:
             parents[max(left_root, right_root)] = min(left_root, right_root)
 
+    row_nodes = []
+    grouping_columns = ["repo_name"]
     if "file_content_sha" in df.columns:
-        repo_by_sha = {}
-        for repo, sha in (
-            df[["repo_name", "file_content_sha"]]
-            .dropna()
-            .itertuples(index=False, name=None)
-        ):
-            previous_repo = repo_by_sha.setdefault(sha, repo)
-            union(repo, previous_repo)
-    repos_by_group = {}
-    for repo in parents:
-        repos_by_group.setdefault(find(repo), []).append(repo)
-    repo_is_test = {}
-    for repos in repos_by_group.values():
-        is_test = _repo_bucket(min(repos)) < test_size
-        repo_is_test.update((repo, is_test) for repo in repos)
+        grouping_columns.append("file_content_sha")
+    for values in df[grouping_columns].itertuples(index=False, name=None):
+        repo = values[0]
+        sha = values[1] if len(values) == 2 else None
+        repo_node = ("repo", repo) if pd.notna(repo) else None
+        sha_node = (
+            ("sha", sha)
+            if "file_content_sha" in df.columns and pd.notna(sha)
+            else None
+        )
+        if repo_node is not None:
+            parents.setdefault(repo_node, repo_node)
+        if sha_node is not None:
+            parents.setdefault(sha_node, sha_node)
+        if repo_node is not None and sha_node is not None:
+            union(repo_node, sha_node)
+        row_nodes.append(repo_node or sha_node)
+
+    group_repos = {}
+    group_shas = {}
+    for node in parents:
+        root = find(node)
+        if node[0] == "sha":
+            group_shas.setdefault(root, []).append(node[1])
+        else:
+            group_repos.setdefault(root, []).append(node[1])
+    group_is_test = {}
+    for root in group_repos.keys() | group_shas.keys():
+        stable_key = (
+            f"sha:{min(group_shas[root])}"
+            if root in group_shas
+            else f"repo:{min(group_repos[root])}"
+        )
+        group_is_test[root] = _repo_bucket(stable_key) < test_size
+    row_is_test = [
+        group_is_test[find(node)] if node is not None else False
+        for node in row_nodes
+    ]
     df = df.copy()
-    df["_is_test"] = df["repo_name"].map(repo_is_test).fillna(False)
+    df["_is_test"] = row_is_test
     train = df[~df["_is_test"]].drop(columns="_is_test").reset_index(drop=True)
     test = df[df["_is_test"]].drop(columns="_is_test").reset_index(drop=True)
     return train, test
@@ -270,7 +317,8 @@ def load_data(
     Load SpecMine data.
     - curated_only=False (default): return the full parquet DataFrame.
     - curated_only=True: download the curated repo spec files to ./data and return the SAME schema as the full parquet, plus a `local_path` column.
-    - sample_size=N: random sample of N rows (both modes).
+    - sample_size=N: random sample of N rows (both modes). The full remote
+      parquet is still downloaded and materialized before sampling.
     - seed: random seed for sampling (both modes).
     - split=True (or return_splits=True): return a leak-safe (train, test) tuple instead of one frame. No repo_name and no file_content_sha appears on both sides. `test_size` is the approx. fraction of repos assigned to test.
     """

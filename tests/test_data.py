@@ -1,5 +1,6 @@
 # type: ignore
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -132,6 +133,16 @@ class TestSafeFilename:
         b = sm._safe_local_filename("o/r", "b/spec.md", "bbbb2222")
         assert a != b
 
+    def test_same_basename_and_sha_still_use_distinct_paths(self):
+        a = sm._safe_local_filename("o/r", "a/spec.md", "")
+        b = sm._safe_local_filename("o/r", "b/spec.md", "")
+        assert a != b
+
+    def test_full_sha_distinguishes_shared_prefixes(self):
+        a = sm._safe_local_filename("o/r", "spec.md", "deadbeef" + "a" * 56)
+        b = sm._safe_local_filename("o/r", "spec.md", "deadbeef" + "b" * 56)
+        assert a != b
+
 
 class TestFetchSampleRepoNames:
     def test_parses_lines_and_skips_blanks_and_comments(self, monkeypatch):
@@ -175,7 +186,7 @@ class TestSplitTrainTest:
         test_repos_full = set(full_test["repo_name"])
 
         subset = fake_parquet_df[
-            fake_parquet_df["repo_name"].isin(["alice/repoA", "carol/repoC"])
+            fake_parquet_df["repo_name"].isin(["bob/repoB", "carol/repoC"])
         ].reset_index(drop=True)
         sub_train, sub_test = sm.split_train_test(subset, test_size=0.5)
 
@@ -196,6 +207,23 @@ class TestSplitTrainTest:
         train, test = sm.split_train_test(empty)
         assert train.empty and test.empty
 
+    @pytest.mark.parametrize("test_size", [-0.1, 1.1])
+    def test_rejects_invalid_test_size(self, fake_parquet_df, test_size):
+        with pytest.raises(ValueError, match="test_size"):
+            sm.split_train_test(fake_parquet_df, test_size=test_size)
+
+    def test_null_repo_joins_content_group(self, fake_parquet_df):
+        repo_row = fake_parquet_df.iloc[[1]].copy()
+        missing_repo_row = repo_row.copy()
+        missing_repo_row["repo_name"] = pd.NA
+        df = pd.concat([repo_row, missing_repo_row], ignore_index=True)
+
+        train, test = sm.split_train_test(df, test_size=1.0)
+
+        assert train.empty
+        assert len(test) == 2
+        assert test["file_content_sha"].nunique() == 1
+
 
 class TestAssertNoLeakage:
     def test_passes_on_clean_split(self, fake_parquet_df):
@@ -209,9 +237,10 @@ class TestAssertNoLeakage:
             sm.assert_no_leakage(train, test)
 
     def test_raises_on_content_leak(self, fake_parquet_df):
-        train = fake_parquet_df.iloc[:3].copy()
-        test = fake_parquet_df.iloc[2:4].copy()
-        with pytest.raises(AssertionError):
+        train = fake_parquet_df.iloc[[1]].copy()
+        test = fake_parquet_df.iloc[[2]].copy()
+        assert set(train["repo_name"]).isdisjoint(test["repo_name"])
+        with pytest.raises(AssertionError, match="Content leakage"):
             sm.assert_no_leakage(train, test)
 
 
@@ -224,10 +253,12 @@ class TestLoadDataFull:
         df = sm.load_data(sample_size=3)
         assert len(df) == 3
 
-    def test_seed_is_reproducible(self, patched_parquet):
+    def test_seed_selects_expected_sample(self, patched_parquet, fake_parquet_df):
         a = sm.load_data(sample_size=3, seed=0)
         b = sm.load_data(sample_size=3, seed=0)
-        assert a["repo_name"].tolist() == b["repo_name"].tolist()
+        expected = fake_parquet_df.sample(n=3, random_state=0).reset_index(drop=True)
+        assert a["file_url"].tolist() == expected["file_url"].tolist()
+        assert b["file_url"].tolist() == expected["file_url"].tolist()
 
     def test_split_returns_tuple(self, patched_parquet):
         out = sm.load_data(split=True)
@@ -243,17 +274,19 @@ class TestLoadDataCurated:
         monkeypatch.setattr(sm, "DATA_DIR", tmp_path / "data")
         df = sm.load_data(curated_only=True)
         assert df is not None
+        assert len(df) == 4
         for col in ["repo_name", "file_url", "file_path", "file_content_sha"]:
             assert col in df.columns
         assert "local_path" in df.columns
         for p in df["local_path"]:
-            assert Path(p).exists()
+            assert Path(p).is_file() and Path(p).stat().st_size > 0
 
     def test_filters_to_curated_repos_only(
         self, patched_parquet, fake_raw_response, tmp_path, monkeypatch
     ):
         monkeypatch.setattr(sm, "DATA_DIR", tmp_path / "data")
         df = sm.load_data(curated_only=True)
+        assert df is not None and len(df) == 4
         assert set(df["repo_name"]) <= {"alice/repoA", "carol/repoC"}
         assert "bob/repoB" not in set(df["repo_name"])
 
@@ -278,8 +311,84 @@ class TestLoadDataCurated:
         spec_calls = [u for u in new_calls if "sample_repos.txt" not in u]
         assert spec_calls == []
 
+    def test_null_path_and_sha_metadata_are_supported(
+        self,
+        patched_parquet,
+        fake_raw_response,
+        tmp_path,
+        monkeypatch,
+        fake_parquet_df,
+    ):
+        df = fake_parquet_df.iloc[[0]].copy()
+        df["file_path"] = pd.NA
+        df["file_sha"] = pd.NA
+        df["file_last_commit_sha"] = pd.NA
+        monkeypatch.setattr(sm.pd, "read_parquet", lambda *a, **k: df.copy())
+        monkeypatch.setattr(sm, "DATA_DIR", tmp_path / "data")
+
+        result = sm.load_data(curated_only=True)
+
+        assert result is not None and len(result) == 1
+        assert Path(result.iloc[0]["local_path"]).is_file()
+
+    def test_failed_atomic_publish_leaves_no_partial_file(
+        self, fake_raw_response, tmp_path, monkeypatch
+    ):
+        dest = tmp_path / "data" / "spec.md"
+
+        def fail_replace(*args):
+            raise OSError("publish failed")
+
+        monkeypatch.setattr(sm.os, "replace", fail_replace)
+
+        with pytest.raises(OSError, match="publish failed"):
+            sm._download_file(
+                "https://raw.githubusercontent.com/o/r/sha/spec.md", dest
+            )
+
+        assert not dest.exists()
+        assert list(dest.parent.iterdir()) == []
+
+    def test_partial_temp_write_is_cleaned_up(
+        self, fake_raw_response, tmp_path, monkeypatch
+    ):
+        dest = tmp_path / "data" / "spec.md"
+        temp_path = dest.parent / ".partial.tmp"
+
+        class PartialTempFile:
+            name = str(temp_path)
+
+            def __enter__(self):
+                self.file = temp_path.open("wb")
+                return self
+
+            def write(self, content):
+                self.file.write(content[:4])
+                raise OSError("write failed")
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                self.file.close()
+
+        monkeypatch.setattr(
+            sm.tempfile,
+            "NamedTemporaryFile",
+            lambda **kwargs: PartialTempFile(),
+        )
+
+        with pytest.raises(OSError, match="write failed"):
+            sm._download_file(
+                "https://raw.githubusercontent.com/o/r/sha/spec.md", dest
+            )
+
+        assert not dest.exists()
+        assert list(dest.parent.iterdir()) == []
+
 
 @pytest.mark.network
+@pytest.mark.skipif(
+    os.environ.get("SPECMINE_RUN_NETWORK_TESTS") != "1",
+    reason="set SPECMINE_RUN_NETWORK_TESTS=1 to run network smoke tests",
+)
 class TestNetworkSmoke:
     def test_full_parquet_loads(self):
         df = sm.load_data(sample_size=5, seed=0)
@@ -290,6 +399,6 @@ class TestNetworkSmoke:
         monkeypatch.setattr(sm, "DATA_DIR", tmp_path / "data")
         monkeypatch.setattr(sm, "_fetch_sample_repo_names", lambda: ["PostHog/posthog"])
         df = sm.load_data(curated_only=True, sample_size=3, seed=0)
-        assert df is not None and len(df) <= 3
+        assert df is not None and 0 < len(df) <= 3
         for p in df["local_path"]:
-            assert Path(p).exists()
+            assert Path(p).is_file() and Path(p).stat().st_size > 0

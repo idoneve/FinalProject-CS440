@@ -31,8 +31,10 @@ Import `load_data` from the installed `specmine` package:
 python -c 'from specmine.data import load_data; df = load_data(sample_size=5, seed=0); print(df.head() if df is not None else "Dataset load failed")'
 ```
 
-The default call reads the full parquet dataset. Use `curated_only=True` to load
-the curated repositories and download their spec files into `./data`:
+The default call reads the full parquet dataset. `sample_size` limits the
+returned DataFrame but does not reduce the remote parquet download or its
+memory use. Use `curated_only=True` to load the curated repositories and
+download their spec files into `./data`:
 
 ```python
 from specmine.data import load_data
@@ -47,6 +49,13 @@ Run the local tests with:
 
 ```bash
 pytest -v
+```
+
+Network smoke tests are skipped by default so the local test command works
+offline. To run them explicitly with an internet connection:
+
+```bash
+SPECMINE_RUN_NETWORK_TESTS=1 pytest -v -m network
 ```
 
 ## Dataset Attribution & Citations
