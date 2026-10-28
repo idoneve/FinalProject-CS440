@@ -100,6 +100,27 @@ def patched_parquet(monkeypatch, fake_parquet_df):
     monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
 
 
+class TestLoadFeatureData:
+    def test_loads_and_filters_feature_table(self, monkeypatch):
+        feature_df = pd.DataFrame(
+            {
+                "file_url_sha16": ["a", "b", "c"],
+                "n_lines": [1, 2, 3],
+            }
+        )
+
+        def fake_read_parquet(url, engine=None):
+            assert url == sm.FEATURES_PARQUET_URL
+            assert engine == "fastparquet"
+            return feature_df.copy()
+
+        monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
+
+        result = sm.load_feature_data(pd.DataFrame({"file_url_sha16": ["b", "c"]}))
+
+        assert result["file_url_sha16"].tolist() == ["b", "c"]
+
+
 class TestBlobToRaw:
     def test_converts_standard_blob_url(self):
         blob = "https://github.com/owner/repo/blob/abc123/path/to/spec.md"
