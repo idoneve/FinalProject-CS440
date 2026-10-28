@@ -1,10 +1,10 @@
 """
 The functions in this module consume the precomputed ``spec_content_features``
-rows returned by :func:`specmine.data.load_data`. They do not parse Markdown;
-they clean schema fields, derive ratios and template signals, and optionally
-combine per-spec commit-history aggregates. Call :func:`build_features`
-immediately after loading the feature table (and optionally supply commit rows
-loaded from ``spec_file_commits``).
+rows from the SpecMine feature table. They do not parse Markdown or accept the
+combined ``spec_files`` rows returned directly by
+:func:`specmine.data.load_data`; extract or load ``spec_content_features`` first,
+then call :func:`build_features` (optionally supply rows from
+``spec_file_commits``). They do not infer a classifier target or train a model.
 """
 
 from __future__ import annotations
@@ -176,33 +176,52 @@ def _add_volatility_features(
         )
 
     commit_column = commit_columns[0]
+    valid_commits = commits_df.loc[
+        commits_df[ID_COLUMN].notna()
+        & commits_df[ID_COLUMN].astype(str).str.strip().ne("")
+        & commits_df[commit_column].notna()
+    ].copy()
+    valid_commits = valid_commits.drop_duplicates(subset=[ID_COLUMN, commit_column])
+
     aggregation: dict[str, tuple[str, str]] = {
         "n_commits": (commit_column, "size"),
     }
-    if "lines_changed" in commits_df:
+    has_lines_changed = "lines_changed" in valid_commits
+    if has_lines_changed:
+        valid_commits["lines_changed"] = pd.to_numeric(
+            valid_commits["lines_changed"], errors="coerce"
+        )
         aggregation["total_lines_changed"] = ("lines_changed", "sum")
 
-    volatility = (
-        commits_df.groupby(ID_COLUMN, dropna=False).agg(**aggregation).reset_index()
-    )
-
-    if "total_lines_changed" not in volatility:
-        LOGGER.info(
-            "Commit history lacks lines_changed; using zero for total_lines_changed"
+    volatility = valid_commits.groupby(ID_COLUMN).agg(**aggregation).reset_index()
+    if not has_lines_changed:
+        LOGGER.warning(
+            "Commit history lacks lines_changed; total_lines_changed and "
+            "curation_ratio will be unavailable"
         )
-        volatility["total_lines_changed"] = 0.0
-
-    volatility["total_lines_changed"] = pd.to_numeric(
-        volatility["total_lines_changed"], errors="coerce"
-    ).fillna(0)
-    volatility["curation_ratio"] = volatility["n_commits"] / (
-        volatility["total_lines_changed"] + 1
-    )
+        volatility["total_lines_changed"] = np.nan
+        volatility["curation_ratio"] = np.nan
+    else:
+        all_values_missing = (
+            valid_commits.groupby(ID_COLUMN)["lines_changed"]
+            .apply(lambda values: values.isna().all())
+        )
+        missing_ids = all_values_missing[all_values_missing].index
+        volatility.loc[
+            volatility[ID_COLUMN].isin(missing_ids), "total_lines_changed"
+        ] = np.nan
+        volatility["curation_ratio"] = volatility["n_commits"] / (
+            volatility["total_lines_changed"] + 1
+        )
 
     result = df.merge(volatility, on=ID_COLUMN, how="left", validate="1:1")
-    result["n_commits"] = result["n_commits"].fillna(0).astype("int64")
-    result["total_lines_changed"] = result["total_lines_changed"].fillna(0)
-    result["curation_ratio"] = result["curation_ratio"].fillna(0)
+    result["n_commits"] = result["n_commits"].astype("Int64")
+    result["total_lines_changed"] = pd.to_numeric(
+        result["total_lines_changed"], errors="coerce"
+    )
+    result["curation_ratio"] = pd.to_numeric(
+        result["curation_ratio"], errors="coerce"
+    )
     return result
 
 
@@ -250,12 +269,14 @@ def derive_proxy_label(df: pd.DataFrame) -> pd.Series:
     placeholders = df["placeholder_density"] > PLACEHOLDER_DENSITY_THRESHOLD
     tiny_structured = df["is_tiny"].eq(1) & df["tiny_but_structured"].eq(1)
     if "n_commits" in df:
-        low_commits = df["n_commits"].fillna(0).le(LOW_COMMIT_THRESHOLD)
+        known_history = df["n_commits"].notna()
+        low_commits = known_history & df["n_commits"].le(LOW_COMMIT_THRESHOLD)
     else:
         LOGGER.info(
-            "n_commits is unavailable; treating the heavy-template branch as low-history"
+            "n_commits is unavailable; skipping the commit-history proxy branch"
         )
-        low_commits = pd.Series(True, index=df.index)
+        known_history = pd.Series(False, index=df.index)
+        low_commits = pd.Series(False, index=df.index)
 
     label = (
         tiny_structured | placeholders | (df["is_heavy_template"].eq(1) & low_commits)
