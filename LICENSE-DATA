@@ -1,0 +1,33 @@
+SpecMine v1.0 — License
+
+The SpecMine dataset compilation (the selection, structuring, attribution,
+enrichment, schema, and accompanying documentation) is licensed under the
+Creative Commons Attribution 4.0 International License (CC BY 4.0).
+
+    https://creativecommons.org/licenses/by/4.0/
+
+You are free to share and adapt the material for any purpose, including
+commercially, provided you give appropriate credit (cite the SpecMine paper,
+below), indicate if changes were made, and do not apply legal or technological
+measures that restrict others from doing anything the license permits.
+
+Attribution:
+    Shyam Agarwal and Bogdan Vasilescu. "SpecMine: A Large-Scale Corpus of
+    Spec-Driven Development Artifacts." Proceedings of the 24th International
+    Conference on Mining Software Repositories (MSR '27), 2027.
+
+IMPORTANT — underlying content:
+The individual spec files, commit messages, and other repository content
+included or referenced in this dataset remain the property of their respective
+authors and are subject to the license of each source repository. Each row
+retains its repository's SPDX license identifier (repo_license_spdx_id) so that
+users can filter to license-compatible subsets. Redistribution or reuse of any
+specific file's content is governed by that repository's own license and by
+GitHub's Terms of Service, not by the CC BY 4.0 license that covers the
+compilation.
+
+All data was collected from public GitHub repositories within the GitHub API
+terms of service. Commit email addresses, avatar URLs, and GPG signatures have
+been removed; public author and committer logins and numeric identifiers are
+retained. Users must not attempt to deanonymize individuals and must keep
+personal data out of published results beyond aggregate analysis.

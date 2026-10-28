@@ -1,4 +1,7 @@
--- Sourced from SpecMine v1.1 Schema located at <https://github.com/shyamagarwal13/specmine-official/blob/main/schema.sql>
+-- SpecMine v1.0 schema (matches the Parquet files in data/).
+-- The PR layer is stored internally as 11 per-tool tables (<tool>_prs / <tool>_pr_files);
+-- this release unions them and adds a `tool` column. Commit-email, avatar-URL, and
+-- GPG-signature columns are dropped at release; file_content ships in specs.jsonl.gz.
 
 CREATE TABLE `spec_files` (
   `file_url_sha16` char(16),
@@ -125,4 +128,174 @@ CREATE TABLE `spec_files` (
   `has_proposal` tinyint(4),
   `has_design` tinyint(4),
   `trace_rollup_at` varchar(32)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `spec_file_commits` (
+  `id` bigint(20),
+  `file_url_sha16` char(16),
+  `repo_name` varchar(512),
+  `file_path` text,
+  `seq_from_oldest` int(11),
+  `commit_sha` varchar(64),
+  `node_id` varchar(255),
+  `html_url` text,
+  `message` longtext,
+  `comment_count` int(11),
+  `authored_at` varchar(64),
+  `author_name` text,
+  `author_login` varchar(255),
+  `author_id` bigint(20),
+  `author_type` varchar(64),
+  `committed_at` varchar(64),
+  `committer_name` text,
+  `committer_login` varchar(255),
+  `committer_id` bigint(20),
+  `committer_type` varchar(64),
+  `tree_sha` varchar(64),
+  `parents` text,
+  `verified` tinyint(1),
+  `verification_reason` varchar(64)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `spec_content_features` (
+  `file_url_sha16` char(16),
+  `n_bytes` int(11),
+  `n_lines` int(11),
+  `n_words` int(11),
+  `n_headings` int(11),
+  `max_heading_depth` int(11),
+  `n_code_fences` int(11),
+  `n_mermaid` int(11),
+  `n_tables` int(11),
+  `n_links` int(11),
+  `n_images` int(11),
+  `n_list_items` int(11),
+  `n_checkboxes` int(11),
+  `n_checked` int(11),
+  `n_shall` int(11),
+  `n_gherkin` int(11),
+  `n_scenario_blocks` int(11),
+  `n_delta_headers` int(11),
+  `n_needs_clarification` int(11),
+  `n_todo` int(11),
+  `has_ears` tinyint(4),
+  `has_gherkin` tinyint(4),
+  `has_user_story` tinyint(4),
+  `has_requirements` tinyint(4),
+  `has_acceptance_criteria` tinyint(4),
+  `has_user_scenarios` tinyint(4),
+  `has_non_goals` tinyint(4),
+  `has_out_of_scope` tinyint(4),
+  `has_overview` tinyint(4),
+  `has_success_criteria` tinyint(4),
+  `has_edge_cases` tinyint(4),
+  `has_open_questions` tinyint(4),
+  `has_dependencies` tinyint(4),
+  `has_purpose` tinyint(4),
+  `has_mandatory_marker` tinyint(4),
+  `is_tiny` tinyint(4),
+  `has_unfilled_placeholder` tinyint(4),
+  `has_lorem` tinyint(4),
+  `lang` varchar(8),
+  `content_family` varchar(24)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `spec_links` (
+  `id` bigint(20),
+  `spec_url_sha16` char(16),
+  `rel` varchar(16),
+  `target` varchar(500),
+  `provenance` varchar(24)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `kiro_files` (
+  `id` bigint(20),
+  `repo_name` varchar(511),
+  `owner_login` varchar(255),
+  `repo_id` bigint(20),
+  `file_path` varchar(1000),
+  `file_name` varchar(255),
+  `kind` varchar(16),
+  `feature` varchar(400),
+  `file_sha` varchar(64),
+  `html_url` text,
+  `git_url` text,
+  `fetched_at` varchar(32)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `openspec_artifact_files` (
+  `id` bigint(20),
+  `repo_name` varchar(511),
+  `file_path` varchar(700),
+  `kind` varchar(24),
+  `content` longtext,
+  `content_sha` char(64),
+  `n_bytes` int(11),
+  `n_tasks` int(11),
+  `n_tasks_done` int(11),
+  `n_code_refs` int(11),
+  `fetch_status` varchar(16),
+  `fetched_at` varchar(32)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `openspec_code_refs` (
+  `id` bigint(20),
+  `repo_name` varchar(511),
+  `artifact_path` varchar(700),
+  `code_path` varchar(500),
+  `task_done` tinyint(4),
+  `anchor_sha` char(40),
+  `exists_at_anchor` tinyint(4),
+  `resolved_path` varchar(700)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `repo_trees` (
+  `repo_name` varchar(511),
+  `status` varchar(16),
+  `n_entries` int(11),
+  `truncated` tinyint(4),
+  `fetched_at` varchar(32)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `pull_requests` (
+  `tool` varchar(16),
+  `id` bigint(20),
+  `repo_name` varchar(511),
+  `pr_number` int(11),
+  `title` text,
+  `state` varchar(12),
+  `is_merged` tinyint(4),
+  `merged_at` varchar(32),
+  `created_at` varchar(32),
+  `closed_at` varchar(32),
+  `author_login` varchar(255),
+  `head_branch` varchar(400),
+  `base_branch` varchar(255),
+  `n_files` int(11),
+  `n_specdir_files` int(11),
+  `n_spec_files` int(11),
+  `n_code_files` int(11),
+  `n_md_files` int(11),
+  `n_other_files` int(11),
+  `additions` int(11),
+  `deletions` int(11),
+  `files_status` varchar(12),
+  `touches_code` tinyint(4),
+  `n_code_outside` int(11),
+  `n_prs_in_repo` int(11)
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `pr_files` (
+  `tool` varchar(16),
+  `id` bigint(20),
+  `repo_name` varchar(511),
+  `pr_number` int(11),
+  `file_path` varchar(1000),
+  `change_status` varchar(12),
+  `additions` int(11),
+  `deletions` int(11),
+  `is_specdir` tinyint(4),
+  `is_spec` tinyint(4),
+  `is_code` tinyint(4),
+  `ext` varchar(16)
 ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
