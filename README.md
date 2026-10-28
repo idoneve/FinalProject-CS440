@@ -9,19 +9,54 @@ Software developers are increasingly using AI agents to write technical specific
 
 ## Installation
 
-To install the necessary Python packages, run:
+From the `FinalProject-CS440` directory (the directory containing this README),
+install the package and its dependencies into the Python environment you intend
+to use:
 
 ```bash
-pip install -r requirements.txt
+cd path/to/FinalProject-CS440
+python -m pip install -e ".[dev]"
 ```
 
-To test that your environment connects to the dataset correctly, run:
+The example notebook adds this repository's `src/` folder to its import path,
+so it does not rely on an editable install to find `specmine`. It prints the
+Python interpreter used by its kernel; if imports fail for missing dependencies,
+install them into that interpreter with
+`<python-from-notebook-output> -m pip install -r requirements.txt`. In VS Code,
+choose the intended environment using **Select Kernel** in the notebook.
+
+Import `load_data` from the installed `specmine` package:
 
 ```bash
-python -u load_data.py
+python -c 'from specmine.data import load_data; df = load_data(sample_size=5, seed=0); print(df.head() if df is not None else "Dataset load failed")'
 ```
 
-Or use the notebook
+The default call reads the full parquet dataset. `sample_size` limits the
+returned DataFrame but does not reduce the remote parquet download or its
+memory use. Use `curated_only=True` to load the curated repositories and
+download their spec files into `./data`:
+
+```python
+from specmine.data import load_data
+
+df = load_data(curated_only=True, sample_size=500, seed=0)
+```
+
+Alternatively, open `notebooks/example.ipynb` after installing the package.
+The loader needs an internet connection to access the dataset.
+
+Run the local tests with:
+
+```bash
+pytest -v
+```
+
+Network smoke tests are skipped by default so the local test command works
+offline. To run them explicitly with an internet connection:
+
+```bash
+SPECMINE_RUN_NETWORK_TESTS=1 pytest -v -m network
+```
 
 ## Dataset Attribution & Citations
 

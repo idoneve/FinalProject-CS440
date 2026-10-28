@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "specmine-cs440"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "fastparquet",
+    "huggingface_hub",
+    "pandas",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["network: tests that require an internet connection"]
