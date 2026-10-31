@@ -5,6 +5,7 @@ import sys
 import tempfile
 import threading
 import time
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -211,7 +212,13 @@ def _load_raw(curated_only=False, sample_size=None, seed=None):
     return df
 
 
-def load_feature_data(file_url_sha16) -> pd.DataFrame:
+@lru_cache(maxsize=1)
+def _load_feature_table() -> pd.DataFrame:
+    """Load and cache the precomputed feature table."""
+    return pd.read_parquet(FEATURES_PARQUET_URL, engine="fastparquet")
+
+
+def load_feature_data(file_url_sha16=None) -> pd.DataFrame:
     """Load precomputed ``spec_content_features`` rows from SpecMine.
 
     Args:
@@ -219,9 +226,9 @@ def load_feature_data(file_url_sha16) -> pd.DataFrame:
             containing ``file_url_sha16``. When supplied, only matching feature
             rows are returned.
     """
-    feature_df = pd.read_parquet(FEATURES_PARQUET_URL, engine="fastparquet")
+    feature_df = _load_feature_table()
     if file_url_sha16 is None:
-        return feature_df
+        return feature_df.copy()
 
     if isinstance(file_url_sha16, pd.DataFrame):
         if "file_url_sha16" not in file_url_sha16:
