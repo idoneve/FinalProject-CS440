@@ -100,6 +100,64 @@ def patched_parquet(monkeypatch, fake_parquet_df):
     monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
 
 
+class TestLoadFeatureData:
+    @pytest.fixture(autouse=True)
+    def clear_feature_table_cache(self):
+        sm._load_feature_table.cache_clear()
+        yield
+        sm._load_feature_table.cache_clear()
+
+    def test_loads_and_filters_feature_table(self, monkeypatch):
+        feature_df = pd.DataFrame(
+            {
+                "file_url_sha16": ["a", "b", "c"],
+                "n_lines": [1, 2, 3],
+            }
+        )
+
+        def fake_read_parquet(url, engine=None):
+            assert url == sm.FEATURES_PARQUET_URL
+            assert engine == "fastparquet"
+            return feature_df.copy()
+
+        monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
+
+        result = sm.load_feature_data(pd.DataFrame({"file_url_sha16": ["b", "c"]}))
+
+        assert result["file_url_sha16"].tolist() == ["b", "c"]
+        assert result[["file_url_sha16", "n_lines"]].to_dict("records") == [
+            {"file_url_sha16": "b", "n_lines": 2},
+            {"file_url_sha16": "c", "n_lines": 3},
+        ]
+
+    def test_loads_full_feature_table_when_filter_is_omitted_and_caches(
+        self, monkeypatch
+    ):
+        feature_df = pd.DataFrame(
+            {
+                "file_url_sha16": ["a", "b"],
+                "n_lines": [1, 2],
+            }
+        )
+        read_calls = []
+
+        def fake_read_parquet(url, engine=None):
+            read_calls.append((url, engine))
+            return feature_df.copy()
+
+        monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
+
+        first = sm.load_feature_data()
+        first.loc[0, "n_lines"] = 99
+        second = sm.load_feature_data(None)
+
+        assert second.to_dict("records") == [
+            {"file_url_sha16": "a", "n_lines": 1},
+            {"file_url_sha16": "b", "n_lines": 2},
+        ]
+        assert read_calls == [(sm.FEATURES_PARQUET_URL, "fastparquet")]
+
+
 class TestBlobToRaw:
     def test_converts_standard_blob_url(self):
         blob = "https://github.com/owner/repo/blob/abc123/path/to/spec.md"

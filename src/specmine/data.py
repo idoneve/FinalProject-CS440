@@ -5,6 +5,7 @@ import sys
 import tempfile
 import threading
 import time
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -15,6 +16,9 @@ SAMPLE_REPOS_URL = (
     "main/sample_repos.txt"
 )
 PARQUET_URL = "hf://datasets/ShyAgarwal/specmine/data/spec_files.parquet"
+FEATURES_PARQUET_URL = (
+    "hf://datasets/ShyAgarwal/specmine/data/spec_content_features.parquet"
+)
 DATA_DIR = Path("data")
 _BLOB_RE = re.compile(
     r"^https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/blob/(?P<rest>.+)$"
@@ -208,6 +212,37 @@ def _load_raw(curated_only=False, sample_size=None, seed=None):
     return df
 
 
+@lru_cache(maxsize=1)
+def _load_feature_table() -> pd.DataFrame:
+    """Load and cache the precomputed feature table."""
+    return pd.read_parquet(FEATURES_PARQUET_URL, engine="fastparquet")
+
+
+def load_feature_data(file_url_sha16=None) -> pd.DataFrame:
+    """Load precomputed ``spec_content_features`` rows from SpecMine.
+
+    Args:
+        file_url_sha16: Optional iterable of feature join keys or a DataFrame
+            containing ``file_url_sha16``. When supplied, only matching feature
+            rows are returned.
+    """
+    feature_df = _load_feature_table()
+    if file_url_sha16 is None:
+        return feature_df.copy()
+
+    if isinstance(file_url_sha16, pd.DataFrame):
+        if "file_url_sha16" not in file_url_sha16:
+            raise KeyError(
+                "DataFrame must contain file_url_sha16 to select feature rows"
+            )
+        selected_ids = file_url_sha16["file_url_sha16"]
+    else:
+        selected_ids = file_url_sha16
+
+    requested = pd.Index(selected_ids).dropna().drop_duplicates()
+    return feature_df.loc[feature_df["file_url_sha16"].isin(requested)].copy()
+
+
 def _repo_bucket(repo_name: str, salt: str = "specmine-v1") -> float:
     """Deterministic [0,1) bucket for a repo name."""
     h = hashlib.sha256(f"{salt}:{repo_name}".encode()).hexdigest()
@@ -251,9 +286,7 @@ def split_train_test(df, test_size=0.2):
         sha = values[1] if len(values) == 2 else None
         repo_node = ("repo", repo) if pd.notna(repo) else None
         sha_node = (
-            ("sha", sha)
-            if "file_content_sha" in df.columns and pd.notna(sha)
-            else None
+            ("sha", sha) if "file_content_sha" in df.columns and pd.notna(sha) else None
         )
         if repo_node is not None:
             parents.setdefault(repo_node, repo_node)
@@ -280,8 +313,7 @@ def split_train_test(df, test_size=0.2):
         )
         group_is_test[root] = _repo_bucket(stable_key) < test_size
     row_is_test = [
-        group_is_test[find(node)] if node is not None else False
-        for node in row_nodes
+        group_is_test[find(node)] if node is not None else False for node in row_nodes
     ]
     df = df.copy()
     df["_is_test"] = row_is_test
