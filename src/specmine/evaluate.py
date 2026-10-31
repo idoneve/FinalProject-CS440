@@ -4,6 +4,7 @@ Example:
     python -m specmine.evaluate --model-path models/specmine.joblib \\
         --labels-csv labels.csv --split test --output-json metrics.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -91,7 +92,9 @@ def _expected_columns(model: typing.Any) -> list[str]:
     return [str(column) for column in columns]
 
 
-def _expected_positive_probabilities(model: typing.Any, features: pd.DataFrame) -> np.ndarray:
+def _expected_positive_probabilities(
+    model: typing.Any, features: pd.DataFrame
+) -> np.ndarray:
     """Return probabilities for class 1 using the model's declared class order."""
     classes = getattr(model, "classes_", None)
     if classes is None:
@@ -393,7 +396,9 @@ def _evaluate(args: argparse.Namespace) -> typing.Dict[str, typing.Any]:
     return result
 
 
-def _write_outputs(result: typing.Dict[str, typing.Any], args: argparse.Namespace) -> None:
+def _write_outputs(
+    result: typing.Dict[str, typing.Any], args: argparse.Namespace
+) -> None:
     """Write optional JSON summary and per-example CSV."""
     if args.output_json:
         with args.output_json.open("w", encoding="utf-8") as output_file:
