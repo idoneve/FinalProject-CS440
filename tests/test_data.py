@@ -339,6 +339,15 @@ class TestLoadDataCurated:
         for p in df["local_path"]:
             assert Path(p).is_file() and Path(p).stat().st_size > 0
 
+    def test_data_dir_argument_controls_curated_download_location(
+        self, patched_parquet, fake_raw_response, tmp_path
+    ):
+        data_dir = tmp_path / "custom-cache"
+        df = sm.load_data(curated_only=True, data_dir=data_dir)
+
+        assert df is not None and len(df) == 4
+        assert all(Path(path).parent == data_dir for path in df["local_path"])
+
     def test_filters_to_curated_repos_only(
         self, patched_parquet, fake_raw_response, tmp_path, monkeypatch
     ):
