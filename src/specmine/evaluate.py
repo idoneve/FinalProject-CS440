@@ -11,9 +11,9 @@ import json
 import logging
 import pickle
 import sys
+import typing
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
 
 import joblib
 import numpy as np
@@ -54,7 +54,7 @@ def _validate_val_frac(value: float) -> float:
     return fraction
 
 
-def _load_model(model_path: Path) -> Any:
+def _load_model(model_path: Path) -> typing.Any:
     """Load a joblib estimator and validate its inference interface."""
     if not model_path.exists():
         raise FileNotFoundError(f"Model file does not exist: {model_path}")
@@ -80,7 +80,7 @@ def _load_model(model_path: Path) -> Any:
     return model
 
 
-def _expected_columns(model: Any) -> list[str]:
+def _expected_columns(model: typing.Any) -> list[str]:
     """Get named model inputs so inference cannot silently use the wrong columns."""
     columns = getattr(model, "feature_names_in_", None)
     if columns is None:
@@ -91,7 +91,7 @@ def _expected_columns(model: Any) -> list[str]:
     return [str(column) for column in columns]
 
 
-def _expected_positive_probabilities(model: Any, features: pd.DataFrame) -> np.ndarray:
+def _expected_positive_probabilities(model: typing.Any, features: pd.DataFrame) -> np.ndarray:
     """Return probabilities for class 1 using the model's declared class order."""
     classes = getattr(model, "classes_", None)
     if classes is None:
@@ -134,11 +134,11 @@ def _expected_calibration_error(y_true: np.ndarray, y_prob: np.ndarray) -> float
 
 def _prediction_rows(
     df: pd.DataFrame, y_prob: np.ndarray, y_pred: np.ndarray
-) -> list[dict[str, Any]]:
+) -> list[dict[str, typing.Any]]:
     """Build portable per-example prediction records."""
-    rows: list[dict[str, Any]] = []
+    rows: list[dict[str, typing.Any]] = []
     for index, (_, row) in enumerate(df.iterrows()):
-        record: dict[str, Any] = {
+        record: dict[str, typing.Any] = {
             "id": row.get(ID_COLUMN),
             "y_true": int(row[LABEL_COLUMN]) if LABEL_COLUMN in df else None,
             "y_pred": int(y_pred[index]),
@@ -152,8 +152,8 @@ def _prediction_rows(
 
 
 def evaluate_model(
-    model: Any, df: pd.DataFrame, threshold: float = 0.5
-) -> dict[str, Any]:
+    model: typing.Any, df: pd.DataFrame, threshold: float = 0.5
+) -> dict[str, typing.Any]:
     """Predict probabilities and compute metrics when ``df`` includes labels.
 
     The model must expose ``feature_names_in_`` and ``predict_proba``. Only its
@@ -173,7 +173,7 @@ def evaluate_model(
     y_prob = _expected_positive_probabilities(model, features)
     y_pred = (y_prob >= threshold).astype("int8")
 
-    metrics: dict[str, Any] | None = None
+    metrics: dict[str, typing.Any] | None = None
     if LABEL_COLUMN in df:
         if df[LABEL_COLUMN].isna().any():
             raise ValueError("Evaluation labels must not contain missing values")
@@ -216,7 +216,7 @@ def _read_labels(labels_path: Path) -> pd.DataFrame:
     """Read and validate the user's external ground-truth labels CSV."""
     if not labels_path.is_file():
         raise FileNotFoundError(f"Labels CSV does not exist: {labels_path}")
-    labels = pd.read_csv(labels_path, dtype={"spec_id": "string"})
+    labels = pd.read_csv(labels_path)
     required = {"spec_id", LABEL_COLUMN}
     missing = sorted(required - set(labels.columns))
     if missing:
@@ -280,8 +280,8 @@ def _load_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _validation_split(
-    train_df: pd.DataFrame, val_frac: float, seed: Optional[int]
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    train_df: pd.DataFrame, val_frac: float, seed: typing.Optional[int]
+) -> typing.Tuple[pd.DataFrame, pd.DataFrame]:
     """Carve a deterministic validation subset from train."""
     if train_df.empty or len(train_df) < 2:
         raise ValueError("Cannot create a validation split from fewer than 2 rows")
@@ -309,7 +309,7 @@ def _validation_split(
 
 
 def _load_selected_data(
-    args: argparse.Namespace, labels: Optional[pd.DataFrame] = None
+    args: argparse.Namespace, labels: typing.Optional[pd.DataFrame] = None
 ) -> pd.DataFrame:
     """Load the selected leak-safe partition, optionally deriving validation."""
     if args.split == "val" and not args.make_val:
@@ -352,7 +352,7 @@ def _load_selected_data(
     return val_df
 
 
-def _evaluate(args: argparse.Namespace) -> Dict[str, Any]:
+def _evaluate(args: argparse.Namespace) -> typing.Dict[str, typing.Any]:
     """Load inputs, run inference, and assemble report metadata."""
     model = _load_model(args.model_path)
     labels = _read_labels(args.labels_csv) if args.labels_csv else None
@@ -393,7 +393,7 @@ def _evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     return result
 
 
-def _write_outputs(result: Dict[str, Any], args: argparse.Namespace) -> None:
+def _write_outputs(result: typing.Dict[str, typing.Any], args: argparse.Namespace) -> None:
     """Write optional JSON summary and per-example CSV."""
     if args.output_json:
         with args.output_json.open("w", encoding="utf-8") as output_file:
@@ -403,7 +403,7 @@ def _write_outputs(result: Dict[str, Any], args: argparse.Namespace) -> None:
         pd.DataFrame(result["predictions"]).to_csv(args.output_csv, index=False)
 
 
-def _print_summary(result: dict[str, Any]) -> None:
+def _print_summary(result: dict[str, typing.Any]) -> None:
     """Log a concise human-readable evaluation summary."""
     LOGGER.info(
         "Split: %s | examples: %d | labeled: %d | unlabeled: %d | unmatched: %d",
@@ -440,7 +440,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: typing.Optional[Sequence[str]] = None) -> int:
     """Run the evaluator CLI and return a process status code."""
     logging.basicConfig(
         level=logging.INFO,
