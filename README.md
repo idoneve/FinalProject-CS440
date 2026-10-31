@@ -45,6 +45,32 @@ df = load_data(curated_only=True, sample_size=500, seed=0)
 Alternatively, open `notebooks/example.ipynb` after installing the package.
 The loader needs an internet connection to access the dataset.
 
+## Evaluating a Classifier
+
+The released SpecMine schema does not include AI-authorship labels. Supply a
+CSV of manually labeled examples with `spec_id` values matching
+`file_url_sha16` and a binary `label` column (`1` for AI-drafted, `0` for
+human-drafted). Examples without a label match are excluded and counted.
+
+```csv
+spec_id,label
+0123456789abcdef,1
+fedcba9876543210,0
+```
+
+Save a fitted sklearn pipeline with `joblib`, then evaluate a split:
+
+```bash
+python -m specmine.evaluate --model-path models/specmine.joblib \
+  --labels-csv labels.csv --split test \
+  --output-json metrics.json --output-csv predictions.csv
+```
+
+Without `--labels-csv`, the command emits predictions only and does not compute
+supervised metrics. `--split` accepts `train`, `test`, or `all`; use
+`--make-val --split val` to deterministically carve a validation split out of
+train. Curated downloads use `--data-dir` (default `./data`).
+
 Run the local tests with:
 
 ```bash

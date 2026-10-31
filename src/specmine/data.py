@@ -111,13 +111,16 @@ def _download_file(url: str, dest: Path) -> bool:
             temp_path.unlink(missing_ok=True)
 
 
-def _curated_local_dataframe(sample_size=None, seed=None) -> pd.DataFrame:
+def _curated_local_dataframe(
+    sample_size=None, seed=None, data_dir=None
+) -> pd.DataFrame:
     """
-    Download the curated set of repo spec files to ./data and return the
-    same schema as the full parquet, plus a `local_path` column.
+    Download curated spec files to ``data_dir`` (default ``./data``) and
+    return the same schema as the full parquet, plus a `local_path` column.
     Rows whose file couldn't be downloaded are dropped.
     """
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    data_dir = DATA_DIR if data_dir is None else Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
     wanted = set(_fetch_sample_repo_names())
     print(f"Curated repo list: {len(wanted)} unique repos")
     stop = threading.Event()
@@ -156,7 +159,7 @@ def _curated_local_dataframe(sample_size=None, seed=None) -> pd.DataFrame:
             continue
         raw_url = _blob_to_raw(blob_url)
         fname = _safe_local_filename(repo, file_path, sha)
-        dest = DATA_DIR / fname
+        dest = data_dir / fname
         sys.stdout.write(f"\r  [{i}/{total}] {repo} -> {fname[:70]}")
         sys.stdout.flush()
         try:
@@ -176,11 +179,13 @@ def _curated_local_dataframe(sample_size=None, seed=None) -> pd.DataFrame:
     return df
 
 
-def _load_raw(curated_only=False, sample_size=None, seed=None):
+def _load_raw(curated_only=False, sample_size=None, seed=None, data_dir=None):
     """Load a single SpecMine DataFrame (no splitting)."""
     if curated_only:
         try:
-            return _curated_local_dataframe(sample_size=sample_size, seed=seed)
+            return _curated_local_dataframe(
+                sample_size=sample_size, seed=seed, data_dir=data_dir
+            )
         except Exception as e:
             print(f"\nError loading curated dataset: {e}")
             print("Check requirements.txt for needed packages")
@@ -344,6 +349,7 @@ def load_data(
     split=False,
     test_size=0.2,
     return_splits=False,
+    data_dir=None,
 ):
     """
     Load SpecMine data.
@@ -352,9 +358,15 @@ def load_data(
     - sample_size=N: random sample of N rows (both modes). The full remote
       parquet is still downloaded and materialized before sampling.
     - seed: random seed for sampling (both modes).
+    - data_dir: local directory for curated spec downloads. Defaults to ./data.
     - split=True (or return_splits=True): return a leak-safe (train, test) tuple instead of one frame. No repo_name and no file_content_sha appears on both sides. `test_size` is the approx. fraction of repos assigned to test.
     """
-    df = _load_raw(curated_only=curated_only, sample_size=sample_size, seed=seed)
+    df = _load_raw(
+        curated_only=curated_only,
+        sample_size=sample_size,
+        seed=seed,
+        data_dir=data_dir,
+    )
     if df is None:
         return None
     if split or return_splits:
