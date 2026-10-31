@@ -216,7 +216,7 @@ def _read_labels(labels_path: Path) -> pd.DataFrame:
     """Read and validate the user's external ground-truth labels CSV."""
     if not labels_path.is_file():
         raise FileNotFoundError(f"Labels CSV does not exist: {labels_path}")
-    labels = pd.read_csv(labels_path)
+    labels = pd.read_csv(labels_path, dtype={"spec_id": "string"})
     required = {"spec_id", LABEL_COLUMN}
     missing = sorted(required - set(labels.columns))
     if missing:

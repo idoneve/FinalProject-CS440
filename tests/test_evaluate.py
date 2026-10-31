@@ -97,6 +97,16 @@ def test_load_model_rejects_objects_without_predict_proba(tmp_path):
         evaluate._load_model(model_path)
 
 
+def test_read_labels_preserves_leading_zero_ids(tmp_path):
+    labels_path = tmp_path / "labels.csv"
+    labels_path.write_text("spec_id,label\n0000000000000042,1\n", encoding="utf-8")
+
+    labels = evaluate._read_labels(labels_path)
+
+    assert labels.loc[0, "spec_id"] == "0000000000000042"
+    assert labels.loc[0, "label"] == 1
+
+
 def test_evaluate_model_rejects_invalid_threshold():
     with pytest.raises(ValueError, match="threshold"):
         evaluate.evaluate_model(DummyModel(), labeled_frame(), threshold=1.1)
