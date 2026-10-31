@@ -5,7 +5,6 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Iterable
 from pathlib import Path
 
 import pandas as pd
@@ -212,9 +211,7 @@ def _load_raw(curated_only=False, sample_size=None, seed=None):
     return df
 
 
-def load_feature_data(
-    file_url_sha16: Iterable[object] | pd.DataFrame | None = None,
-) -> pd.DataFrame:
+def load_feature_data(file_url_sha16) -> pd.DataFrame:
     """Load precomputed ``spec_content_features`` rows from SpecMine.
 
     Args:
@@ -282,9 +279,7 @@ def split_train_test(df, test_size=0.2):
         sha = values[1] if len(values) == 2 else None
         repo_node = ("repo", repo) if pd.notna(repo) else None
         sha_node = (
-            ("sha", sha)
-            if "file_content_sha" in df.columns and pd.notna(sha)
-            else None
+            ("sha", sha) if "file_content_sha" in df.columns and pd.notna(sha) else None
         )
         if repo_node is not None:
             parents.setdefault(repo_node, repo_node)
@@ -311,8 +306,7 @@ def split_train_test(df, test_size=0.2):
         )
         group_is_test[root] = _repo_bucket(stable_key) < test_size
     row_is_test = [
-        group_is_test[find(node)] if node is not None else False
-        for node in row_nodes
+        group_is_test[find(node)] if node is not None else False for node in row_nodes
     ]
     df = df.copy()
     df["_is_test"] = row_is_test
