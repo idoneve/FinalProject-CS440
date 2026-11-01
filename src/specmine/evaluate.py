@@ -33,6 +33,7 @@ from sklearn.model_selection import train_test_split
 
 from specmine.data import load_data, load_feature_data
 from specmine.features import build_features
+from specmine.labels import read_labels_csv as _read_labels
 
 LOGGER = logging.getLogger(__name__)
 ID_COLUMN = "file_url_sha16"
@@ -213,29 +214,6 @@ def evaluate_model(
         "metrics": metrics,
         "predictions": _prediction_rows(df, y_prob, y_pred),
     }
-
-
-def _read_labels(labels_path: Path) -> pd.DataFrame:
-    """Read and validate the user's external ground-truth labels CSV."""
-    if not labels_path.is_file():
-        raise FileNotFoundError(f"Labels CSV does not exist: {labels_path}")
-    labels = pd.read_csv(labels_path, dtype={"spec_id": "string"})
-    required = {"spec_id", LABEL_COLUMN}
-    missing = sorted(required - set(labels.columns))
-    if missing:
-        raise ValueError(f"Labels CSV is missing required columns: {missing}")
-    if labels["spec_id"].isna().any():
-        raise ValueError("Labels CSV spec_id values must not be missing")
-    labels["spec_id"] = labels["spec_id"].astype("string")
-    if labels["spec_id"].duplicated().any():
-        raise ValueError("Labels CSV must contain at most one row per spec_id")
-
-    numeric = pd.to_numeric(labels[LABEL_COLUMN], errors="coerce")
-    invalid_text = labels[LABEL_COLUMN].notna() & numeric.isna()
-    if invalid_text.any() or not numeric.dropna().isin([0, 1]).all():
-        raise ValueError("Labels CSV label values must be 0, 1, or empty")
-    labels[LABEL_COLUMN] = numeric
-    return labels
 
 
 def _attach_labels(df: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:

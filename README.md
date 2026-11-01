@@ -5,7 +5,7 @@
 Our team is participating in the **MSR 2027 Mining Challenge** using the **SpecMine** dataset
 Specification can be found here: **<https://2027.msrconf.org/track/msr-2027-mining-challenge>**
 
-Software developers are increasingly using AI agents to write technical specification files (`spec.md`). This project aims to build a AI classifier that analyzes the language inside these specification files and predicts whether a specific file **was or was not drafted by an AI agent**.
+Software developers are increasingly using AI agents to write technical specification files (`spec.md`). This project aims to build an AI classifier that analyzes specification files and predicts whether **AI was used at any point in creating a specific file**.
 
 ## Installation
 
@@ -48,27 +48,42 @@ The loader needs an internet connection to access the dataset.
 ## Training Baselines
 
 The training module compares Logistic Regression and Random Forest baselines
-using numeric features from the curated repositories. Since SpecMine does not
-include AI-authorship labels, it uses the project's heuristic proxy labels;
-the reported holdout metrics measure agreement with that heuristic, not
-authorship accuracy. Repositories are kept separate between training and
-holdout data.
+using numeric features and labels supplied by you. It does not generate proxy
+labels and refuses to train unless `--labels-csv` is provided. Use `1` when AI
+was used for any part of creating a spec, `0` only when no AI was used, and a
+blank label for ambiguous cases to exclude. Repositories are kept separate
+between training and holdout data.
 
 ```bash
-python -m specmine.train --sample-size 500 --seed 42 \
+python -m specmine.train --labels-csv labels.csv --seed 42 \
   --model-dir models/baselines
 ```
 
-Omit `--model-dir` to skip saving models. Select one or both estimators with
-`--models logistic_regression random_forest`. The example notebook also runs
-both baselines on its curated sample and prints their holdout metrics.
+The CSV uses the same schema as evaluation: `spec_id` matches
+`file_url_sha16`, and `label` is `0`, `1`, or blank. Omit `--sample-size` to use
+all matched labeled examples; if supplied, it caps the matched rows after ID
+matching. Training reads the full metadata parquet to ensure labeled IDs are
+not lost to random sampling, then loads features only for labeled specs. Omit
+`--model-dir` to skip saving models. Select one or both estimators with
+`--models logistic_regression random_forest`.
+
+For pipeline smoke-testing only, `examples/synthetic_labels.csv` contains
+fabricated labels for sample specs. They are **not authorship ground truth**;
+metrics from that file are not evidence of AI-authorship accuracy. The trainer
+always describes results as metrics against the supplied labels. Only verified
+labels support conclusions about authorship performance.
+
+The notebook requires an explicit `SPECMINE_LABELS_CSV` environment variable;
+set it to either your real labels or the synthetic smoke-test file before
+running its training cell.
 
 ## Evaluating a Classifier
 
 The released SpecMine schema does not include AI-authorship labels. Supply a
 CSV of manually labeled examples with `spec_id` values matching
-`file_url_sha16` and a binary `label` column (`1` for AI-drafted, `0` for
-human-drafted). Examples without a label match are excluded and counted.
+`file_url_sha16` and a binary `label` column (`1` if AI was used at any point in
+creating the spec, `0` if no AI was used). Examples without a label match are
+excluded and counted. Leave ambiguous examples blank; training excludes them.
 
 ```csv
 spec_id,label
