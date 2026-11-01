@@ -19,6 +19,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from pandas import DataFrame
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
@@ -33,6 +34,7 @@ from sklearn.model_selection import train_test_split
 
 from specmine.data import load_data, load_feature_data
 from specmine.features import build_features
+from specmine.labels import read_labels_csv as _read_labels
 
 LOGGER = logging.getLogger(__name__)
 ID_COLUMN = "file_url_sha16"
@@ -215,29 +217,6 @@ def evaluate_model(
     }
 
 
-def _read_labels(labels_path: Path) -> pd.DataFrame:
-    """Read and validate the user's external ground-truth labels CSV."""
-    if not labels_path.is_file():
-        raise FileNotFoundError(f"Labels CSV does not exist: {labels_path}")
-    labels = pd.read_csv(labels_path)
-    required = {"spec_id", LABEL_COLUMN}
-    missing = sorted(required - set(labels.columns))
-    if missing:
-        raise ValueError(f"Labels CSV is missing required columns: {missing}")
-    if labels["spec_id"].isna().any():
-        raise ValueError("Labels CSV spec_id values must not be missing")
-    labels["spec_id"] = labels["spec_id"].astype("string")
-    if labels["spec_id"].duplicated().any():
-        raise ValueError("Labels CSV must contain at most one row per spec_id")
-
-    numeric = pd.to_numeric(labels[LABEL_COLUMN], errors="coerce")
-    invalid_text = labels[LABEL_COLUMN].notna() & numeric.isna()
-    if invalid_text.any() or not numeric.dropna().isin([0, 1]).all():
-        raise ValueError("Labels CSV label values must be 0, 1, or empty")
-    labels[LABEL_COLUMN] = numeric
-    return labels
-
-
 def _attach_labels(df: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:
     """Left-join labels on spec_id == file_url_sha16 and retain match status."""
     if ID_COLUMN not in df.columns:
@@ -283,8 +262,8 @@ def _load_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _validation_split(
-    train_df: pd.DataFrame, val_frac: float, seed: typing.Optional[int]
-) -> typing.Tuple[pd.DataFrame, pd.DataFrame]:
+    train_df: pd.DataFrame, val_frac: float, seed: int | None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Carve a deterministic validation subset from train."""
     if train_df.empty or len(train_df) < 2:
         raise ValueError("Cannot create a validation split from fewer than 2 rows")
@@ -312,7 +291,7 @@ def _validation_split(
 
 
 def _load_selected_data(
-    args: argparse.Namespace, labels: typing.Optional[pd.DataFrame] = None
+    args: argparse.Namespace, labels: pd.DataFrame | None = None
 ) -> pd.DataFrame:
     """Load the selected leak-safe partition, optionally deriving validation."""
     if args.split == "val" and not args.make_val:
@@ -329,7 +308,7 @@ def _load_selected_data(
         "data_dir": args.data_dir,
     }
     if args.split == "all":
-        data = load_data(**load_options)
+        data: DataFrame = load_data(**load_options)
         if data is None:
             raise RuntimeError("SpecMine data loading failed")
         return _attach_labels(data, labels) if labels is not None else data
@@ -355,7 +334,7 @@ def _load_selected_data(
     return val_df
 
 
-def _evaluate(args: argparse.Namespace) -> typing.Dict[str, typing.Any]:
+def _evaluate(args: argparse.Namespace) -> dict[str, typing.Any]:
     """Load inputs, run inference, and assemble report metadata."""
     model = _load_model(args.model_path)
     labels = _read_labels(args.labels_csv) if args.labels_csv else None
@@ -397,7 +376,7 @@ def _evaluate(args: argparse.Namespace) -> typing.Dict[str, typing.Any]:
 
 
 def _write_outputs(
-    result: typing.Dict[str, typing.Any], args: argparse.Namespace
+    result: dict[str, typing.Any], args: argparse.Namespace
 ) -> None:
     """Write optional JSON summary and per-example CSV."""
     if args.output_json:
@@ -445,7 +424,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: typing.Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Run the evaluator CLI and return a process status code."""
     logging.basicConfig(
         level=logging.INFO,
