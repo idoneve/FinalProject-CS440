@@ -17,6 +17,7 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+from pandas import DataFrame
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -406,7 +407,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         labels_frame = read_labels_csv(args.labels_csv)
         LOGGER.info("Loading SpecMine metadata for the supplied label IDs")
-        data = load_data(seed=args.seed)
+        data: DataFrame = load_data(seed=args.seed)
         if data is None:
             raise RuntimeError("SpecMine data loading failed")
         features, labels, groups = prepare_training_data(
