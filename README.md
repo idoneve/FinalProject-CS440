@@ -45,6 +45,24 @@ df = load_data(curated_only=True, sample_size=500, seed=0)
 Alternatively, open `notebooks/example.ipynb` after installing the package.
 The loader needs an internet connection to access the dataset.
 
+## Training Baselines
+
+The training module compares Logistic Regression and Random Forest baselines
+using numeric features from the curated repositories. Since SpecMine does not
+include AI-authorship labels, it uses the project's heuristic proxy labels;
+the reported holdout metrics measure agreement with that heuristic, not
+authorship accuracy. Repositories are kept separate between training and
+holdout data.
+
+```bash
+python -m specmine.train --sample-size 500 --seed 42 \
+  --model-dir models/baselines
+```
+
+Omit `--model-dir` to skip saving models. Select one or both estimators with
+`--models logistic_regression random_forest`. The example notebook also runs
+both baselines on its curated sample and prints their holdout metrics.
+
 ## Evaluating a Classifier
 
 The released SpecMine schema does not include AI-authorship labels. Supply a
