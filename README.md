@@ -85,7 +85,9 @@ The training notebook defaults to `examples/synthetic_labels.csv` as a
 smoke-test input. Set its `LABELS_CSV` variable to your verified labels file
 before training on real data. Blank labels are excluded from training, and all
 IDs appearing in the labels CSV (including blank-label rows) are excluded from
-the extrapolation sample. Predictions are written to
+the extrapolation sample. Repeated rows for the same ID and label collapse to
+one row; conflicting labels for an ID are treated as blank/ambiguous and
+reported with a warning. Predictions are written to
 `notebooks/unlabeled_predictions.csv` by default.
 
 ## Evaluating a Classifier

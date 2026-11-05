@@ -240,11 +240,42 @@ def test_synthetic_labels_csv_is_a_parseable_smoke_test_fixture():
         Path(__file__).resolve().parents[1] / "examples" / "synthetic_labels.csv"
     )
 
-    labels = train.read_labels_csv(labels_path)
+    with pytest.warns(UserWarning, match=r"Conflicting labels.*ebf86b98e601f589"):
+        labels = train.read_labels_csv(labels_path)
 
     assert list(labels.columns) == ["spec_id", "label"]
     assert len(labels) >= 8
-    assert set(labels["label"]) == {0, 1}
+    assert labels["spec_id"].is_unique
+    assert set(labels["label"].dropna()) == {0, 1}
+
+
+def test_read_labels_csv_collapses_duplicate_ids_with_same_label(tmp_path):
+    labels_path = tmp_path / "labels.csv"
+    labels_path.write_text(
+        "spec_id,label\nspec-a,1\nspec-a,1\nspec-b,\n",
+        encoding="utf-8",
+    )
+
+    labels = train.read_labels_csv(labels_path)
+
+    assert labels["spec_id"].tolist() == ["spec-a", "spec-b"]
+    assert labels.loc[labels["spec_id"].eq("spec-a"), "label"].item() == 1
+    assert pd.isna(labels.loc[labels["spec_id"].eq("spec-b"), "label"].item())
+
+
+def test_read_labels_csv_marks_conflicting_duplicate_ids_ambiguous(tmp_path):
+    labels_path = tmp_path / "labels.csv"
+    labels_path.write_text(
+        "spec_id,label\nspec-a,0\nspec-b,1\nspec-a,1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.warns(UserWarning, match=r"Conflicting labels.*spec-a"):
+        labels = train.read_labels_csv(labels_path)
+
+    assert labels["spec_id"].tolist() == ["spec-a", "spec-b"]
+    assert pd.isna(labels.loc[labels["spec_id"].eq("spec-a"), "label"]).all()
+    assert labels.loc[labels["spec_id"].eq("spec-b"), "label"].item() == 1
 
 
 @pytest.mark.parametrize(

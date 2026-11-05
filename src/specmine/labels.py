@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -23,12 +24,35 @@ def read_labels_csv(labels_path: str | Path) -> pd.DataFrame:
     if labels[SPEC_ID_COLUMN].isna().any():
         raise ValueError("Labels CSV spec_id values must not be missing")
     labels[SPEC_ID_COLUMN] = labels[SPEC_ID_COLUMN].astype("string")
-    if labels[SPEC_ID_COLUMN].duplicated().any():
-        raise ValueError("Labels CSV must contain at most one row per spec_id")
 
     numeric = pd.to_numeric(labels[LABEL_COLUMN], errors="coerce")
     invalid_text = labels[LABEL_COLUMN].notna() & numeric.isna()
     if invalid_text.any() or not numeric.dropna().isin([0, 1]).all():
         raise ValueError("Labels CSV label values must be 0, 1, or empty")
     labels[LABEL_COLUMN] = numeric
+
+    duplicate_ids = labels.loc[
+        labels[SPEC_ID_COLUMN].duplicated(keep=False), SPEC_ID_COLUMN
+    ].drop_duplicates()
+    if not duplicate_ids.empty:
+        conflicting_ids = (
+            labels.groupby(SPEC_ID_COLUMN, sort=False)[LABEL_COLUMN]
+            .nunique(dropna=False)
+            .loc[lambda counts: counts > 1]
+            .index
+        )
+        conflict_list = sorted(str(spec_id) for spec_id in conflicting_ids)
+        if conflict_list:
+            warnings.warn(
+                "Conflicting labels for duplicate spec_id value(s) "
+                f"{conflict_list}; treating them as blank/ambiguous.",
+                UserWarning,
+                stacklevel=2,
+            )
+        labels = labels.drop_duplicates(subset=SPEC_ID_COLUMN, keep="first").copy()
+        if conflict_list:
+            labels.loc[
+                labels[SPEC_ID_COLUMN].isin(conflicting_ids), LABEL_COLUMN
+            ] = pd.NA
+
     return labels
