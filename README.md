@@ -49,27 +49,25 @@ as escaped text so remote images and embedded HTML are not rendered. The
 curated downloader accepts only HTTPS URLs on `github.com` and
 `raw.githubusercontent.com` and validates every redirect before following it.
 Record reviewed labels in `examples/synthetic_labels.csv` as `spec_id,label`;
-that file currently contains smoke-test labels, so replace them before real
-training. The labeling notebook reviews one repository per run; repeat it for a
-different repository until your labels cover at least two repositories, as
-training requires a repository-disjoint holdout. Use `notebooks/example.ipynb`
-to train and evaluate one selected baseline using only matched, nonblank
-labels, then refit on all labeled specs and predict a random sample of 100
-specs not listed in the labels CSV. Specs without precomputed features are
-replaced from the unlabeled pool; if the full requested sample is not
-available, the notebook stops rather than saving an undersized result. The
-sample size and model are configurable. Each run publishes predictions to a
-unique CSV filename after a complete temporary-file write, so concurrent runs
-do not overwrite one another.
+it contains real, manually verified labels. The labeling notebook reviews one
+repository per run; repeat it for a different repository until your labels
+cover at least two repositories, as training requires a repository-disjoint
+holdout. Use `notebooks/predict.ipynb` to train and evaluate one selected
+baseline using only matched, nonblank labels, then refit on all labeled specs
+and predict a random sample of 100 specs not listed in the labels CSV. Specs
+without precomputed features are replaced from the unlabeled pool; if the full
+requested sample is not available, the notebook stops rather than saving an
+undersized result. The sample size and model are configurable. Each run
+publishes predictions to a unique CSV filename after a complete temporary-file
+write, so concurrent runs do not overwrite one another.
 
 ## Training Baselines
 
 The training module compares Logistic Regression and Random Forest baselines
-using numeric features and labels supplied by you. It does not generate proxy
-labels and refuses to train unless `--labels-csv` is provided. Use `1` when AI
-was used for any part of creating a spec, `0` only when no AI was used, and a
-blank label for ambiguous cases to exclude. Repositories are kept separate
-between training and holdout data.
+using numeric features and labels supplied by you. It refuses to train unless
+`--labels-csv` is provided. Use `1` when AI was used for any part of creating
+a spec, `0` only when no AI was used, and a blank label for ambiguous cases to
+exclude. Repositories are kept separate between training and holdout data.
 
 ```bash
 python -m specmine.train --labels-csv labels.csv --seed 42 \
@@ -84,19 +82,13 @@ not lost to random sampling, then loads features only for labeled specs. Omit
 `--model-dir` to skip saving models. Select one or both estimators with
 `--models logistic_regression random_forest`.
 
-For pipeline smoke-testing only, `examples/synthetic_labels.csv` contains
-fabricated labels for sample specs. They are **not authorship ground truth**;
-metrics from that file are not evidence of AI-authorship accuracy. The trainer
-always describes results as metrics against the supplied labels. Only verified
-labels support conclusions about authorship performance.
-
-The training notebook defaults to `examples/synthetic_labels.csv` as a
-smoke-test input. Set its `LABELS_CSV` variable to your verified labels file
-before training on real data. Blank labels are excluded from training, and all
-IDs appearing in the labels CSV (including blank-label rows) are excluded from
-the extrapolation sample. Repeated rows for the same ID and label collapse to
-one row; conflicting labels for an ID are treated as blank/ambiguous and
-reported with a warning. Prediction CSVs use a unique filename based on the
+The training notebook defaults to `examples/synthetic_labels.csv`, the
+manually labeled file. Change its `LABELS_CSV` variable only when using a
+different label set. Blank labels are excluded from training, and all IDs
+appearing in the labels CSV (including blank-label rows) are excluded from the
+extrapolation sample. Repeated rows for the same ID and label collapse to one
+row; conflicting labels for an ID are treated as blank/ambiguous and reported
+with a warning. Prediction CSVs use a unique filename based on the
 `notebooks/unlabeled_predictions.csv` output name by default.
 
 ## Evaluating a Classifier

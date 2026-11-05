@@ -98,6 +98,35 @@ def test_train_models_is_deterministic_for_fixed_seed():
     ]["predictions"]
 
 
+def test_repository_disjoint_split_is_seeded_and_keeps_repositories_together():
+    features, labels, repositories = training_frames()
+
+    first = train.repository_disjoint_split(
+        features, labels, repositories, test_size=0.2, seed=17
+    )
+    second = train.repository_disjoint_split(
+        features, labels, repositories, test_size=0.2, seed=17
+    )
+    expected = next(
+        train.GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=17).split(
+            train._numeric_features(features)[0],
+            labels,
+            groups=repositories.to_numpy(),
+        )
+    )
+    train_indices, test_indices = first
+
+    assert np.array_equal(train_indices, second[0])
+    assert np.array_equal(test_indices, second[1])
+    assert np.array_equal(train_indices, expected[0])
+    assert np.array_equal(test_indices, expected[1])
+    assert set(train_indices).isdisjoint(test_indices)
+    assert set(train_indices) | set(test_indices) == set(range(len(repositories)))
+    assert set(repositories.iloc[train_indices]).isdisjoint(
+        set(repositories.iloc[test_indices])
+    )
+
+
 def test_train_models_requires_explicit_labels():
     features, _, repositories = training_frames()
 
@@ -235,7 +264,7 @@ def test_prepare_training_data_rejects_unknown_labeled_ids():
         train.prepare_training_data(data, labels_frame, feature_data=pd.DataFrame())
 
 
-def test_synthetic_labels_csv_is_a_parseable_smoke_test_fixture():
+def test_manually_labeled_csv_is_parseable_and_flags_conflicting_ids():
     labels_path = (
         Path(__file__).resolve().parents[1] / "examples" / "synthetic_labels.csv"
     )

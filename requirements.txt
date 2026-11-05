@@ -3,6 +3,7 @@ fastparquet
 requests
 huggingface_hub
 joblib
+matplotlib
 scikit-learn
 pytest
 pytest-cov

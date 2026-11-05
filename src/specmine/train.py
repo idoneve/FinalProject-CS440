@@ -207,6 +207,56 @@ def _numeric_features(features: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     return numeric, columns
 
 
+def repository_disjoint_split(
+    features: pd.DataFrame,
+    labels: Sequence[Any] | pd.Series,
+    repository_groups: Sequence[Any] | pd.Series,
+    *,
+    test_size: float = 0.2,
+    seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return seeded train/test row indices with repositories kept disjoint."""
+    if not 0 < test_size < 1:
+        raise ValueError("test_size must be between 0 and 1")
+    if features is None or not isinstance(features, pd.DataFrame) or features.empty:
+        raise ValueError("features must be a non-empty pandas DataFrame")
+    if labels is None:
+        raise ValueError("labels are required for leakage-safe splitting")
+    if repository_groups is None:
+        raise ValueError("repository_groups are required for leakage-safe splitting")
+
+    x, _ = _numeric_features(features)
+    y = pd.Series(labels).reset_index(drop=True)
+    groups = pd.Series(repository_groups).reset_index(drop=True)
+    if len(y) != len(x) or len(groups) != len(x):
+        raise ValueError("features, labels, and repository_groups must align")
+    if groups.isna().any():
+        raise ValueError("repository_groups must not contain missing values")
+    if groups.nunique() < 2:
+        raise ValueError("At least two repositories are required for a holdout split")
+
+    splitter = GroupShuffleSplit(
+        n_splits=1,
+        test_size=test_size,
+        random_state=seed,
+    )
+    try:
+        train_indices, test_indices = next(
+            splitter.split(x, y, groups=groups.to_numpy())
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "Unable to create a repository-disjoint holdout; adjust test_size "
+            "or provide more repositories"
+        ) from exc
+
+    train_groups = groups.iloc[train_indices]
+    test_groups = groups.iloc[test_indices]
+    if set(train_groups.unique()) & set(test_groups.unique()):
+        raise RuntimeError("Repository leakage detected in the holdout split")
+    return train_indices, test_indices
+
+
 def train_models(
     features: pd.DataFrame,
     labels: Sequence[Any] | pd.Series,
@@ -250,9 +300,6 @@ def train_models(
         )
     if groups.isna().any():
         raise ValueError("repository_groups must not contain missing values")
-    if groups.nunique() < 2:
-        raise ValueError("At least two repositories are required for a holdout split")
-
     selected_names = tuple(model_names)
     estimators = _build_estimators(seed)
     unknown = sorted(set(selected_names) - set(estimators))
@@ -264,20 +311,13 @@ def train_models(
         raise ValueError("Select at least one model to train")
 
     x, feature_columns = _numeric_features(features)
-    splitter = GroupShuffleSplit(
-        n_splits=1,
+    train_indices, test_indices = repository_disjoint_split(
+        x,
+        y,
+        groups,
         test_size=test_size,
-        random_state=seed,
+        seed=seed,
     )
-    try:
-        train_indices, test_indices = next(
-            splitter.split(x, y, groups=groups.to_numpy())
-        )
-    except ValueError as exc:
-        raise ValueError(
-            "Unable to create a repository-disjoint holdout; adjust test_size "
-            "or provide more repositories"
-        ) from exc
     train_labels = y.iloc[train_indices]
     if train_labels.nunique() < 2:
         raise ValueError(
@@ -292,10 +332,6 @@ def train_models(
     y_test = y.iloc[test_indices]
     train_groups = groups.iloc[train_indices]
     test_groups = groups.iloc[test_indices]
-    overlap = set(train_groups.unique()) & set(test_groups.unique())
-    if overlap:
-        raise RuntimeError("Repository leakage detected in the holdout split")
-
     LOGGER.info(
         "Split: %d training specs/%d repos, %d holdout specs/%d repos; "
         "features: %d; labels: train=%s holdout=%s",
