@@ -7,6 +7,7 @@ import threading
 import time
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import SplitResult, urljoin, urlsplit
 
 import pandas as pd
 import requests
@@ -21,8 +22,12 @@ FEATURES_PARQUET_URL = (
 )
 DATA_DIR = Path("data")
 _BLOB_RE = re.compile(
-    r"^https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/blob/(?P<rest>.+)$"
+    r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/blob/(?P<rest>[^?#]+)$",
+    re.IGNORECASE,
 )
+_ALLOWED_GITHUB_HOSTS = {"github.com", "raw.githubusercontent.com"}
+_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+_MAX_DOWNLOAD_REDIRECTS = 5
 
 
 def loading_animation(stop, message="Loading..."):
@@ -41,7 +46,7 @@ def _fetch_sample_repo_names() -> list[str]:
     """
     Download the curated list of repo names (owner/repo) from GitHub.
     """
-    resp = requests.get(SAMPLE_REPOS_URL, timeout=30)
+    resp = _get_github_response(SAMPLE_REPOS_URL, timeout=30)
     resp.raise_for_status()
     names = []
     for line in resp.text.splitlines():
@@ -57,13 +62,63 @@ def _blob_to_raw(url: str) -> str:
     Convert a GitHub blob URL to its raw.githubusercontent.com equivalent.
     https://github.com/OWNER/REPO/blob/SHA/path/to/file.md -> https://raw.githubusercontent.com/OWNER/REPO/SHA/path/to/file.md
     """
+    parsed = _validate_github_url(url)
+    if parsed.hostname == "raw.githubusercontent.com":
+        if not parsed.path.strip("/"):
+            raise ValueError("GitHub raw URL must include a file path")
+        return parsed.geturl()
     m = _BLOB_RE.match(url)
     if not m:
-        return url
+        raise ValueError("Expected a GitHub blob URL or raw.githubusercontent.com URL")
     return (
         f"https://raw.githubusercontent.com/{m.group('owner')}/"
         f"{m.group('repo')}/{m.group('rest')}"
     )
+
+
+def _validate_github_url(url: str) -> SplitResult:
+    """Parse and validate an HTTPS URL whose host is an approved GitHub host."""
+    if not isinstance(url, str) or not url or url.strip() != url:
+        raise ValueError("Download URL must be a non-empty, whitespace-free string")
+    if "\\" in url or any(ord(char) < 32 for char in url):
+        raise ValueError("Download URL contains invalid characters")
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Download URL is malformed") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or hostname is None
+        or hostname.lower() not in _ALLOWED_GITHUB_HOSTS
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.fragment
+    ):
+        raise ValueError("Download URL must use HTTPS on an approved GitHub host")
+    return parsed
+
+
+def _get_github_response(url: str, *, timeout: int) -> requests.Response:
+    """Request a GitHub-hosted URL without following unvalidated redirects."""
+    current_url = _validate_github_url(url).geturl()
+    for redirect_count in range(_MAX_DOWNLOAD_REDIRECTS + 1):
+        response = requests.get(
+            current_url,
+            timeout=timeout,
+            allow_redirects=False,
+        )
+        if response.status_code not in _REDIRECT_STATUSES:
+            return response
+        if redirect_count == _MAX_DOWNLOAD_REDIRECTS:
+            raise ValueError("Too many redirects while requesting GitHub content")
+        location = response.headers.get("Location")
+        if not location:
+            raise ValueError("Redirect response is missing a Location header")
+        current_url = _validate_github_url(urljoin(current_url, location)).geturl()
+    raise RuntimeError("GitHub redirect loop ended unexpectedly")
 
 
 def _safe_local_filename(repo_name: str, file_path: str, sha: str) -> str:
@@ -90,10 +145,11 @@ def _download_file(url: str, dest: Path) -> bool:
     dest.parent.mkdir(parents=True, exist_ok=True)
     temp_path = None
     try:
-        r = requests.get(url, timeout=60)
+        r = _get_github_response(url, timeout=60)
         r.raise_for_status()
         ctype = r.headers.get("Content-Type", "")
-        if "text/html" in ctype and not url.endswith(".html"):
+        final_url = getattr(r, "url", url)
+        if "text/html" in ctype and not urlsplit(final_url).path.endswith(".html"):
             raise ValueError(f"got HTML instead of spec file ({ctype})")
         with tempfile.NamedTemporaryFile(
             dir=dest.parent,
@@ -154,15 +210,15 @@ def _curated_local_dataframe(
         if not sha:
             sha = row.get("file_last_commit_sha", "")
             sha = "" if pd.isna(sha) else str(sha)
-        if not isinstance(blob_url, str) or not blob_url.startswith("http"):
+        if not isinstance(blob_url, str):
             local_paths.append(None)
             continue
-        raw_url = _blob_to_raw(blob_url)
-        fname = _safe_local_filename(repo, file_path, sha)
-        dest = data_dir / fname
-        sys.stdout.write(f"\r  [{i}/{total}] {repo} -> {fname[:70]}")
-        sys.stdout.flush()
         try:
+            raw_url = _blob_to_raw(blob_url)
+            fname = _safe_local_filename(repo, file_path, sha)
+            dest = data_dir / fname
+            sys.stdout.write(f"\r  [{i}/{total}] {repo} -> {fname[:70]}")
+            sys.stdout.flush()
             _download_file(raw_url, dest)
             local_paths.append(str(dest))
         except Exception as e:

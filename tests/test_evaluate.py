@@ -1,3 +1,4 @@
+import argparse
 import json
 
 import numpy as np
@@ -247,6 +248,39 @@ def test_main_without_labels_writes_predictions_only(tmp_path, monkeypatch):
     assert result["n_labeled"] == 0
     assert result["n_unlabeled"] == 2
     assert len(result["predictions"]) == 2
+
+
+def test_write_outputs_escapes_spreadsheet_formulas_in_csv_metadata(tmp_path):
+    output_csv = tmp_path / "predictions.csv"
+    result = {
+        "predictions": [
+            {
+                "id": '=HYPERLINK("https://example.com")',
+                "repo_name": "\t@SUM(1,1)",
+                "file_path": "-1+2",
+                "y_pred": 1,
+            },
+            {
+                "id": "safe-id",
+                "repo_name": "owner/repo",
+                "file_path": "spec.md",
+                "y_pred": 0,
+            },
+        ]
+    }
+
+    evaluate._write_outputs(
+        result,
+        argparse.Namespace(output_json=None, output_csv=output_csv),
+    )
+    predictions = pd.read_csv(output_csv, dtype=str)
+
+    assert predictions["id"].tolist() == [
+        "'" + '=HYPERLINK("https://example.com")',
+        "safe-id",
+    ]
+    assert predictions["repo_name"].tolist() == ["'\t@SUM(1,1)", "owner/repo"]
+    assert predictions["file_path"].tolist() == ["'-1+2", "spec.md"]
 
 
 def test_validation_split_is_deterministic_and_stratified():
