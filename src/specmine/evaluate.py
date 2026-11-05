@@ -375,6 +375,22 @@ def _evaluate(args: argparse.Namespace) -> dict[str, typing.Any]:
     return result
 
 
+def escape_spreadsheet_formula(value: typing.Any) -> typing.Any:
+    """Prevent untrusted CSV text from being interpreted as a spreadsheet formula."""
+    if not isinstance(value, str):
+        return value
+    first_visible = 0
+    while first_visible < len(value) and (
+        value[first_visible].isspace()
+        or ord(value[first_visible]) < 32
+        or 127 <= ord(value[first_visible]) <= 159
+    ):
+        first_visible += 1
+    if value[first_visible : first_visible + 1] in {"=", "+", "-", "@"}:
+        return "'" + value
+    return value
+
+
 def _write_outputs(
     result: dict[str, typing.Any], args: argparse.Namespace
 ) -> None:
@@ -384,7 +400,11 @@ def _write_outputs(
             json.dump(result, output_file, indent=2, allow_nan=False)
             output_file.write("\n")
     if args.output_csv:
-        pd.DataFrame(result["predictions"]).to_csv(args.output_csv, index=False)
+        predictions = pd.DataFrame(result["predictions"])
+        predictions = predictions.apply(
+            lambda column: column.map(escape_spreadsheet_formula)
+        )
+        predictions.to_csv(args.output_csv, index=False)
 
 
 def _print_summary(result: dict[str, typing.Any]) -> None:

@@ -81,7 +81,7 @@ def fake_raw_response(monkeypatch):
 
     calls = []
 
-    def fake_get(url, timeout=None):
+    def fake_get(url, timeout=None, allow_redirects=True):
         calls.append(url)
         if "sample_repos.txt" in url:
             body = "alice/repoA\ncarol/repoC\n"
@@ -169,9 +169,23 @@ class TestBlobToRaw:
         raw = "https://raw.githubusercontent.com/o/r/abc/spec.md"
         assert sm._blob_to_raw(raw) == raw
 
-    def test_passthrough_for_non_github(self):
+    def test_rejects_non_github_url(self):
         url = "https://example.com/spec.md"
-        assert sm._blob_to_raw(url) == url
+        with pytest.raises(ValueError, match="approved GitHub host"):
+            sm._blob_to_raw(url)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://github.com/o/r/blob/sha/spec.md",
+            "https://github.com.evil.example/o/r/blob/sha/spec.md",
+            "https://user@github.com/o/r/blob/sha/spec.md",
+            "https://github.com:443/o/r/blob/sha/spec.md",
+        ],
+    )
+    def test_rejects_unexpected_scheme_or_host_details(self, url):
+        with pytest.raises(ValueError):
+            sm._blob_to_raw(url)
 
 
 class TestSafeFilename:
@@ -205,7 +219,9 @@ class TestSafeFilename:
 class TestFetchSampleRepoNames:
     def test_parses_lines_and_skips_blanks_and_comments(self, monkeypatch):
         class _Resp:
+            status_code = 200
             text = "# comment\n\nowner1/repo1\nowner2/repo2\n  \n"
+            headers = {}
 
             def raise_for_status(self):
                 pass
@@ -449,6 +465,68 @@ class TestLoadDataCurated:
 
         assert not dest.exists()
         assert list(dest.parent.iterdir()) == []
+
+    def test_download_rejects_redirect_to_loopback(self, tmp_path, monkeypatch):
+        calls = []
+
+        class RedirectResponse:
+            status_code = 302
+            headers = {"Location": "http://127.0.0.1/admin"}
+
+            def raise_for_status(self):
+                raise AssertionError("redirect should be rejected before status handling")
+
+        def fake_get(url, timeout=None, allow_redirects=True):
+            calls.append((url, allow_redirects))
+            return RedirectResponse()
+
+        monkeypatch.setattr(sm.requests, "get", fake_get)
+
+        with pytest.raises(ValueError, match="HTTPS on an approved GitHub host"):
+            sm._download_file(
+                "https://raw.githubusercontent.com/o/r/sha/spec.md",
+                tmp_path / "spec.md",
+            )
+
+        assert calls == [
+            ("https://raw.githubusercontent.com/o/r/sha/spec.md", False)
+        ]
+
+    def test_download_validates_each_github_redirect(self, tmp_path, monkeypatch):
+        calls = []
+
+        class Response:
+            def __init__(self, status_code, headers=None, content=b"spec"):
+                self.status_code = status_code
+                self.headers = headers or {"Content-Type": "text/plain"}
+                self.content = content
+
+            def raise_for_status(self):
+                pass
+
+        responses = [
+            Response(
+                302,
+                {"Location": "/o/r/sha/spec.md", "Content-Type": "text/plain"},
+            ),
+            Response(200),
+        ]
+
+        def fake_get(url, timeout=None, allow_redirects=True):
+            calls.append((url, allow_redirects))
+            return responses.pop(0)
+
+        monkeypatch.setattr(sm.requests, "get", fake_get)
+        dest = tmp_path / "spec.md"
+
+        assert sm._download_file(
+            "https://raw.githubusercontent.com/o/r/sha/spec.md", dest
+        )
+        assert dest.read_bytes() == b"spec"
+        assert calls == [
+            ("https://raw.githubusercontent.com/o/r/sha/spec.md", False),
+            ("https://raw.githubusercontent.com/o/r/sha/spec.md", False),
+        ]
 
 
 @pytest.mark.network
