@@ -10,6 +10,7 @@ dependencies = [
     "fastparquet",
     "huggingface_hub",
     "joblib",
+    "matplotlib",
     "pandas",
     "requests",
     "scikit-learn",
