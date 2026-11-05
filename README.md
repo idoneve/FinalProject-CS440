@@ -18,9 +18,9 @@ cd path/to/FinalProject-CS440
 python -m pip install -e ".[dev]"
 ```
 
-The example notebook adds this repository's `src/` folder to its import path,
-so it does not rely on an editable install to find `specmine`. It prints the
-Python interpreter used by its kernel; if imports fail for missing dependencies,
+The notebooks add this repository's `src/` folder to their import path, so they
+do not rely on an editable install to find `specmine`. They print the Python
+interpreter used by their kernel; if imports fail for missing dependencies,
 install them into that interpreter with
 `<python-from-notebook-output> -m pip install -r requirements.txt`. In VS Code,
 choose the intended environment using **Select Kernel** in the notebook.
@@ -42,8 +42,16 @@ from specmine.data import load_data
 df = load_data(curated_only=True, sample_size=500, seed=0)
 ```
 
-Alternatively, open `notebooks/example.ipynb` after installing the package.
-The loader needs an internet connection to access the dataset.
+The loader needs an internet connection to access the dataset. Use
+`notebooks/label_specs.ipynb` to sample a curated repository and display its
+spec markdown and `spec_id` values for manual labeling. Record reviewed labels
+in `examples/synthetic_labels.csv` as `spec_id,label`; that file currently
+contains fabricated smoke-test rows, so replace those rows before using it for
+real training. Use `notebooks/example.ipynb` to train and evaluate one selected
+baseline using only matched, nonblank labels, then refit it on all labeled
+specs and predict a random sample of 100 specs not listed in the labels CSV.
+The prediction sample size, model, labels CSV, and output path are configurable
+in the notebook.
 
 ## Training Baselines
 
@@ -73,9 +81,12 @@ metrics from that file are not evidence of AI-authorship accuracy. The trainer
 always describes results as metrics against the supplied labels. Only verified
 labels support conclusions about authorship performance.
 
-The notebook requires an explicit `SPECMINE_LABELS_CSV` environment variable;
-set it to either your real labels or the synthetic smoke-test file before
-running its training cell.
+The training notebook defaults to `examples/synthetic_labels.csv` as a
+smoke-test input. Set its `LABELS_CSV` variable to your verified labels file
+before training on real data. Blank labels are excluded from training, and all
+IDs appearing in the labels CSV (including blank-label rows) are excluded from
+the extrapolation sample. Predictions are written to
+`notebooks/unlabeled_predictions.csv` by default.
 
 ## Evaluating a Classifier
 
