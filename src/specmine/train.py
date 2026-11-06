@@ -28,7 +28,12 @@ from sklearn.preprocessing import StandardScaler
 from specmine.data import load_data, load_feature_data
 from specmine.evaluate import evaluate_model
 from specmine.features import build_features
-from specmine.labels import LABEL_COLUMN, SPEC_ID_COLUMN, read_labels_csv
+from specmine.labels import (
+    CONFIDENCE_COLUMN,
+    LABEL_COLUMN,
+    SPEC_ID_COLUMN,
+    read_labels_csv,
+)
 
 LOGGER = logging.getLogger(__name__)
 ID_COLUMN = "file_url_sha16"
@@ -43,13 +48,14 @@ def prepare_training_data(
     *,
     sample_size: int | None = None,
     seed: int = 42,
-) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
+) -> tuple[pd.DataFrame, pd.Series, pd.Series, pd.Series]:
     """Build features, supplied labels, and repository groups for labeled data.
 
     ``feature_data`` may be supplied by callers that have already loaded
     ``spec_content_features``. Otherwise, matching rows are loaded using the
     labeled IDs in ``data``. Blank labels are excluded, allowing ambiguous
-    examples to be left unlabeled.
+    examples to be left unlabeled. Confidence scores are returned separately
+    from model features.
     """
     if data is None or data.empty:
         raise ValueError("Training data must be a non-empty DataFrame")
@@ -65,7 +71,9 @@ def prepare_training_data(
     if missing:
         raise KeyError(f"Training data is missing required columns: {missing}")
     missing_labels = [
-        column for column in (SPEC_ID_COLUMN, LABEL_COLUMN) if column not in labels
+        column
+        for column in (SPEC_ID_COLUMN, LABEL_COLUMN, CONFIDENCE_COLUMN)
+        if column not in labels
     ]
     if missing_labels:
         raise KeyError(
@@ -81,7 +89,7 @@ def prepare_training_data(
         raise ValueError("Every training spec must have a repository name")
     repository_lookup[ID_COLUMN] = repository_lookup[ID_COLUMN].astype("string")
 
-    label_rows = labels[[SPEC_ID_COLUMN, LABEL_COLUMN]].copy()
+    label_rows = labels[[SPEC_ID_COLUMN, LABEL_COLUMN, CONFIDENCE_COLUMN]].copy()
     if label_rows[SPEC_ID_COLUMN].isna().any():
         raise ValueError("Labels CSV spec_id values must not be missing")
     label_rows[SPEC_ID_COLUMN] = label_rows[SPEC_ID_COLUMN].astype("string")
@@ -92,6 +100,20 @@ def prepare_training_data(
     if invalid_labels.any() or not numeric_labels.dropna().isin([0, 1]).all():
         raise ValueError("Labels CSV label values must be 0, 1, or empty")
     label_rows[LABEL_COLUMN] = numeric_labels
+    numeric_confidence = pd.to_numeric(
+        label_rows[CONFIDENCE_COLUMN], errors="coerce"
+    )
+    invalid_confidence = (
+        label_rows[CONFIDENCE_COLUMN].notna() & numeric_confidence.isna()
+    )
+    if (
+        invalid_confidence.any()
+        or not numeric_confidence.dropna().between(0, 100).all()
+    ):
+        raise ValueError("Labels confidence values must be between 0 and 100")
+    if (numeric_labels.notna() & numeric_confidence.isna()).any():
+        raise ValueError("Every nonblank label must have a confidence score")
+    label_rows[CONFIDENCE_COLUMN] = numeric_confidence
 
     labeled_rows = label_rows.loc[label_rows[LABEL_COLUMN].notna()].copy()
     known_ids = set(repository_lookup[ID_COLUMN])
@@ -133,7 +155,9 @@ def prepare_training_data(
     features = build_features(feature_data)
 
     combined = features.merge(
-        training_rows[[ID_COLUMN, REPOSITORY_COLUMN, LABEL_COLUMN]],
+        training_rows[
+            [ID_COLUMN, REPOSITORY_COLUMN, LABEL_COLUMN, CONFIDENCE_COLUMN]
+        ],
         on=ID_COLUMN,
         how="inner",
         validate="one_to_one",
@@ -147,15 +171,20 @@ def prepare_training_data(
         raise ValueError("No labeled specs matched the precomputed feature data")
 
     y = combined[LABEL_COLUMN].astype("int8").reset_index(drop=True)
+    confidence_scores = combined[CONFIDENCE_COLUMN].astype(float).reset_index(
+        drop=True
+    )
     groups = combined[REPOSITORY_COLUMN].copy()
-    features = combined.drop(columns=[REPOSITORY_COLUMN, LABEL_COLUMN])
+    features = combined.drop(
+        columns=[REPOSITORY_COLUMN, LABEL_COLUMN, CONFIDENCE_COLUMN]
+    )
     LOGGER.info(
         "Prepared %d labeled specs from %d repositories; supplied-label counts: %s",
         len(features),
         groups.nunique(),
         y.value_counts().sort_index().to_dict(),
     )
-    return features, y, groups
+    return features, y, groups, confidence_scores
 
 
 def _build_estimators(seed: int) -> dict[str, Pipeline]:
@@ -262,6 +291,7 @@ def train_models(
     labels: Sequence[Any] | pd.Series,
     repository_groups: Sequence[Any] | pd.Series,
     *,
+    confidence_scores: Sequence[Any] | pd.Series | None = None,
     model_names: Sequence[str] = DEFAULT_MODELS,
     test_size: float = 0.2,
     seed: int = 42,
@@ -300,6 +330,18 @@ def train_models(
         )
     if groups.isna().any():
         raise ValueError("repository_groups must not contain missing values")
+    if confidence_scores is None:
+        confidence = pd.Series(100.0, index=range(len(features)))
+    else:
+        confidence = pd.to_numeric(
+            pd.Series(confidence_scores).reset_index(drop=True), errors="coerce"
+        )
+        if len(confidence) != len(features):
+            raise ValueError(
+                "confidence_scores must have the same number of rows as features"
+            )
+        if confidence.isna().any() or not confidence.between(0, 100).all():
+            raise ValueError("confidence_scores must be numeric values from 0 to 100")
     selected_names = tuple(model_names)
     estimators = _build_estimators(seed)
     unknown = sorted(set(selected_names) - set(estimators))
@@ -324,6 +366,12 @@ def train_models(
             "The repository-disjoint training split contains only one label class; "
             "provide labels for both classes across more repositories or choose "
             "a different seed/test_size"
+        )
+    train_weights = confidence.iloc[train_indices].to_numpy(dtype=float) / 100
+    if np.unique(train_labels.to_numpy()[train_weights > 0]).size < 2:
+        raise ValueError(
+            "The confidence-weighted training split must retain both label classes "
+            "with positive weight"
         )
 
     x_train = x.iloc[train_indices]
@@ -356,7 +404,11 @@ def train_models(
     for name in selected_names:
         model = estimators[name]
         LOGGER.info("Training %s", name)
-        model.fit(x_train, y_train)
+        model.fit(
+            x_train,
+            y_train,
+            classifier__sample_weight=train_weights,
+        )
         evaluation_frame = x_test.copy()
         if ID_COLUMN in features.columns:
             evaluation_frame.insert(
@@ -400,7 +452,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--labels-csv",
         type=Path,
         help=(
-            "Required CSV with spec_id,label columns; see README.md under "
+            "Required CSV with spec_id,label,confidence columns; see README.md under "
             "'Evaluating a Classifier'"
         ),
     )
@@ -433,7 +485,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.labels_csv is None:
         parser.error(
             "--labels-csv is required; see README.md under 'Evaluating a Classifier' "
-            "for the required spec_id,label CSV format"
+            "for the required spec_id,label,confidence CSV format"
         )
     if args.sample_size is not None and args.sample_size < 1:
         parser.error("--sample-size must be a positive integer")
@@ -446,7 +498,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         data: DataFrame = load_data(seed=args.seed)
         if data is None:
             raise RuntimeError("SpecMine data loading failed")
-        features, labels, groups = prepare_training_data(
+        features, labels, groups, confidence_scores = prepare_training_data(
             data,
             labels_frame,
             sample_size=args.sample_size,
@@ -456,6 +508,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             features,
             labels,
             groups,
+            confidence_scores=confidence_scores,
             model_names=args.models,
             test_size=args.test_size,
             seed=args.seed,

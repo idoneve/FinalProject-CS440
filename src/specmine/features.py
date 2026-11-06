@@ -237,9 +237,7 @@ def build_features(
     result = _add_ratio_features(result)
     result = _add_template_signals(result)
 
-    if commits_df is None:
-        LOGGER.info("Commit history was not provided; volatility features skipped")
-    else:
+    if commits_df is not None:
         result = _add_volatility_features(result, commits_df)
 
     return result

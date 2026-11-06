@@ -48,13 +48,22 @@ raw spec markdown and `spec_id` values for manual labeling. Markdown is shown
 as escaped text so remote images and embedded HTML are not rendered. The
 curated downloader accepts only HTTPS URLs on `github.com` and
 `raw.githubusercontent.com` and validates every redirect before following it.
-Record reviewed labels in `examples/synthetic_labels.csv` as `spec_id,label`;
-it contains real, manually verified labels. The labeling notebook reviews one
-repository per run; repeat it for a different repository until your labels
-cover at least two repositories, as training requires a repository-disjoint
-holdout. Use `notebooks/predict.ipynb` to train and evaluate one selected
-baseline using only matched, nonblank labels, then refit on all labeled specs
-and predict a random sample of 100 specs not listed in the labels CSV. Specs
+Record reviewed labels in `examples/real_labels.csv` using the columns
+`spec_id,label,confidence`. Use `1` if AI was used at any point, `0` if it was
+not, and leave the label and confidence blank if evidence is ambiguous. A
+confidence score is a numeric value from 0 to 100 describing certainty in the
+assigned label. The labeling notebook reviews one repository per run; repeat it
+for a different repository until labels cover at least two repositories, as
+training requires a repository-disjoint holdout.
+
+`examples/fake_labels.csv` is the test fixture used by the training and results
+notebooks. For now, `real_labels.csv` and `fake_labels.csv` contain the same
+label rows and matching deterministic random confidence values across the
+0–100 range. These confidence values are test data, not verified assessments;
+replace them with reviewed confidence scores before interpreting model
+performance. Use `notebooks/predict.ipynb` to train and evaluate one selected
+baseline using matched, nonblank labels, then refit on all labeled specs and
+predict a random sample of 100 specs not listed in the labels CSV. Specs
 without precomputed features are replaced from the unlabeled pool; if the full
 requested sample is not available, the notebook stops rather than saving an
 undersized result. The sample size and model are configurable. Each run
@@ -64,28 +73,38 @@ write, so concurrent runs do not overwrite one another.
 ## Training Baselines
 
 The training module compares Logistic Regression and Random Forest baselines
-using numeric features and labels supplied by you. It refuses to train unless
-`--labels-csv` is provided. Use `1` when AI was used for any part of creating
-a spec, `0` only when no AI was used, and a blank label for ambiguous cases to
-exclude. Repositories are kept separate between training and holdout data.
+using numeric spec-content features and labels supplied by you. Commit history
+is not used by the current training/evaluation workflow. It refuses to train
+unless `--labels-csv` is provided. Use `1` when AI was used for any part of
+creating a spec, `0` only when no AI was used, and a blank label for ambiguous
+cases to exclude. Repositories are kept separate between training and holdout
+data.
 
 ```bash
 python -m specmine.train --labels-csv labels.csv --seed 42 \
   --model-dir models/baselines
 ```
 
-The CSV uses the same schema as evaluation: `spec_id` matches
-`file_url_sha16`, and `label` is `0`, `1`, or blank. Omit `--sample-size` to use
-all matched labeled examples; if supplied, it caps the matched rows after ID
-matching. Training reads the full metadata parquet to ensure labeled IDs are
-not lost to random sampling, then loads features only for labeled specs. Omit
-`--model-dir` to skip saving models. Select one or both estimators with
-`--models logistic_regression random_forest`.
+The CSV columns are `spec_id,label,confidence`: `spec_id` matches
+`file_url_sha16`, `label` is `0`, `1`, or blank, and `confidence` is a numeric
+score from 0 through 100. Every nonblank label must have a confidence score.
+Blank labels are excluded from training. The training code passes
+`confidence / 100` as a sample weight, so a score of 0 contributes no weight
+and 100 contributes full weight. Holdout metrics remain unweighted. Omit
+`--sample-size` to use all matched labeled examples; if supplied, it caps the
+matched rows after ID matching. Training reads the full metadata parquet to
+ensure labeled IDs are not lost to random sampling, then loads features only
+for labeled specs. Omit `--model-dir` to skip saving models. Select one or both
+estimators with `--models logistic_regression random_forest`.
 
-The training notebook defaults to `examples/synthetic_labels.csv`, the
-manually labeled file. Change its `LABELS_CSV` variable only when using a
-different label set. Blank labels are excluded from training, and all IDs
-appearing in the labels CSV (including blank-label rows) are excluded from the
+The results notebook reports predicted-class confidence as the larger of the
+two class probabilities, expressed from 0 to 100, alongside the probability
+that a spec is AI-assisted.
+
+The training notebook defaults to `examples/fake_labels.csv` for testing.
+Manual labels should be added to `examples/real_labels.csv` in the labeling
+notebook; switch `LABELS_CSV` when training with that file. All IDs appearing
+in the selected CSV (including blank-label rows) are excluded from the
 extrapolation sample. Repeated rows for the same ID and label collapse to one
 row; conflicting labels for an ID are treated as blank/ambiguous and reported
 with a warning. Prediction CSVs use a unique filename based on the
@@ -95,14 +114,15 @@ with a warning. Prediction CSVs use a unique filename based on the
 
 The released SpecMine schema does not include AI-authorship labels. Supply a
 CSV of manually labeled examples with `spec_id` values matching
-`file_url_sha16` and a binary `label` column (`1` if AI was used at any point in
-creating the spec, `0` if no AI was used). Examples without a label match are
-excluded and counted. Leave ambiguous examples blank; training excludes them.
+`file_url_sha16`, a binary `label` column (`1` if AI was used at any point in
+creating the spec, `0` if no AI was used), and a `confidence` score from 0 to
+100. Examples without a label match are excluded and counted. Leave ambiguous
+examples' label and confidence blank; training excludes them.
 
 ```csv
-spec_id,label
-0123456789abcdef,1
-fedcba9876543210,0
+spec_id,label,confidence
+0123456789abcdef,1,90
+fedcba9876543210,0,75
 ```
 
 Save a fitted sklearn pipeline with `joblib`, then evaluate a split:

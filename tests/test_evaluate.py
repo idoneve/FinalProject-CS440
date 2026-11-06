@@ -100,7 +100,9 @@ def test_load_model_rejects_objects_without_predict_proba(tmp_path):
 
 def test_read_labels_preserves_leading_zero_ids(tmp_path):
     labels_path = tmp_path / "labels.csv"
-    labels_path.write_text("spec_id,label\n0000000000000042,1\n", encoding="utf-8")
+    labels_path.write_text(
+        "spec_id,label,confidence\n0000000000000042,1,90\n", encoding="utf-8"
+    )
 
     labels = evaluate._read_labels(labels_path)
 
@@ -140,7 +142,11 @@ def test_main_joins_labels_and_writes_json_and_csv(tmp_path, monkeypatch):
     )
     labels_path = tmp_path / "labels.csv"
     pd.DataFrame(
-        {"spec_id": ["a", "b", "outside"], "label": [1, None, 0]}
+        {
+            "spec_id": ["a", "b", "outside"],
+            "label": [1, None, 0],
+            "confidence": [90, None, 80],
+        }
     ).to_csv(labels_path, index=False)
     model_path = tmp_path / "model.joblib"
     model_path.touch()
