@@ -1,10 +1,9 @@
-# type: ignore
-
 import os
 from pathlib import Path
 
 import pandas as pd
 import pytest
+
 import specmine.data as sm
 
 
@@ -256,7 +255,7 @@ class TestSplitTrainTest:
         assert set(s1["repo_name"]) == set(s2["repo_name"])
 
     def test_repo_assignment_stable_when_subsetting(self, fake_parquet_df):
-        full_train, full_test = sm.split_train_test(fake_parquet_df, test_size=0.5)
+        _full_train, full_test = sm.split_train_test(fake_parquet_df, test_size=0.5)
         test_repos_full = set(full_test["repo_name"])
 
         subset = fake_parquet_df[
