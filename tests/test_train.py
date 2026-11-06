@@ -359,6 +359,21 @@ def test_read_labels_csv_collapses_duplicate_ids_with_same_label(tmp_path):
     assert pd.isna(labels.loc[labels["spec_id"].eq("spec-b"), "label"].item())
 
 
+def test_read_labels_csv_trims_whitespace_from_column_names(tmp_path):
+    labels_path = tmp_path / "labels.csv"
+    labels_path.write_text(
+        "spec_id         , label, confidence\nspec-a,     1,          80\n",
+        encoding="utf-8",
+    )
+
+    labels = train.read_labels_csv(labels_path)
+
+    assert labels.columns.tolist() == ["spec_id", "label", "confidence"]
+    assert labels.loc[0, "spec_id"] == "spec-a"
+    assert labels.loc[0, "label"] == 1
+    assert labels.loc[0, "confidence"] == 80
+
+
 def test_read_labels_csv_marks_conflicting_duplicate_ids_ambiguous(tmp_path):
     labels_path = tmp_path / "labels.csv"
     labels_path.write_text(

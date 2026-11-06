@@ -18,6 +18,7 @@ def read_labels_csv(labels_path: str | Path) -> pd.DataFrame:
     if not labels_path.is_file():
         raise FileNotFoundError(f"Labels CSV does not exist: {labels_path}")
     labels = pd.read_csv(labels_path, dtype={SPEC_ID_COLUMN: "string"})
+    labels.columns = labels.columns.str.strip()
     required = {SPEC_ID_COLUMN, LABEL_COLUMN, CONFIDENCE_COLUMN}
     missing = sorted(required - set(labels.columns))
     if missing:

@@ -167,6 +167,63 @@ def _download_file(url: str, dest: Path) -> bool:
             temp_path.unlink(missing_ok=True)
 
 
+def download_spec_files(df: pd.DataFrame, data_dir=None) -> pd.DataFrame:
+    """Download the specs in a SpecMine DataFrame and add their ``local_path``.
+
+    Existing non-empty files are reused. Rows that cannot be downloaded are
+    excluded from the result and reported; every row is attempted.
+    """
+    required_columns = {"repo_name", "file_url"}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        raise KeyError(f"Spec data is missing columns: {sorted(missing_columns)}")
+
+    data_dir = DATA_DIR if data_dir is None else Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    successful_positions = []
+    local_paths = []
+    failures = []
+    total = len(df)
+    print(f"Downloading {total} SpecMine files into {data_dir}")
+
+    for position, (_, row) in enumerate(df.iterrows()):
+        i = position + 1
+        repo = row["repo_name"]
+        blob_url = row["file_url"]
+        file_path = row.get("file_path", "")
+        file_path = "" if pd.isna(file_path) else str(file_path)
+        sha = row.get("file_sha", "")
+        sha = "" if pd.isna(sha) else str(sha)
+        if not sha:
+            sha = row.get("file_last_commit_sha", "")
+            sha = "" if pd.isna(sha) else str(sha)
+        try:
+            if not isinstance(repo, str) or not repo:
+                raise ValueError("Repository name is missing")
+            if not isinstance(blob_url, str):
+                raise ValueError("File URL is missing")
+            raw_url = _blob_to_raw(blob_url)
+            dest = data_dir / _safe_local_filename(repo, file_path, sha)
+            _download_file(raw_url, dest)
+            successful_positions.append(position)
+            local_paths.append(str(dest))
+        except Exception as exc:
+            failures.append((i, repo, exc))
+        if i % 100 == 0 or i == total:
+            print(f"Processed {i}/{total} files")
+
+    result = df.iloc[successful_positions].copy().reset_index(drop=True)
+    result["local_path"] = local_paths
+    print(f"Downloaded or reused {len(result)}/{total} files")
+    if failures:
+        details = "; ".join(
+            f"row {i} ({repo}): {type(exc).__name__}: {exc}"
+            for i, repo, exc in failures[:5]
+        )
+        print(f"Skipped {len(failures)} unavailable files. First failures: {details}")
+    return result
+
+
 def _curated_local_dataframe(
     sample_size=None, seed=None, data_dir=None
 ) -> pd.DataFrame:

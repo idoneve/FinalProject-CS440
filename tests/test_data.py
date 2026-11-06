@@ -215,6 +215,53 @@ class TestSafeFilename:
         assert a != b
 
 
+class TestDownloadSpecFiles:
+    def test_downloads_every_repo_to_requested_directory(
+        self, fake_parquet_df, fake_raw_response, tmp_path
+    ):
+        data_dir = tmp_path / "all-specs"
+
+        result = sm.download_spec_files(fake_parquet_df, data_dir=data_dir)
+
+        assert len(result) == len(fake_parquet_df)
+        assert set(result["repo_name"]) == set(fake_parquet_df["repo_name"])
+        assert all(Path(path).parent == data_dir for path in result["local_path"])
+        assert all(Path(path).is_file() for path in result["local_path"])
+        assert len(fake_raw_response) == len(fake_parquet_df)
+
+    def test_reuses_existing_files(self, fake_parquet_df, fake_raw_response, tmp_path):
+        data_dir = tmp_path / "all-specs"
+
+        first = sm.download_spec_files(fake_parquet_df, data_dir=data_dir)
+        request_count = len(fake_raw_response)
+        second = sm.download_spec_files(fake_parquet_df, data_dir=data_dir)
+
+        assert second["local_path"].tolist() == first["local_path"].tolist()
+        assert len(fake_raw_response) == request_count
+
+    def test_returns_paths_for_successful_rows_and_reports_failures(
+        self, fake_parquet_df, monkeypatch, tmp_path
+    ):
+        attempted = []
+
+        def fake_download(url, dest):
+            attempted.append(url)
+            if len(attempted) == 1:
+                raise OSError("network unavailable")
+            dest.write_text("# spec\n")
+            return True
+
+        monkeypatch.setattr(sm, "_download_file", fake_download)
+
+        result = sm.download_spec_files(fake_parquet_df, data_dir=tmp_path)
+
+        assert len(attempted) == len(fake_parquet_df)
+        assert len(result) == len(fake_parquet_df) - 1
+        assert "local_path" in result.columns
+        assert result["file_url"].tolist() == fake_parquet_df["file_url"].iloc[1:].tolist()
+        assert all(Path(path).is_file() for path in result["local_path"])
+
+
 class TestFetchSampleRepoNames:
     def test_parses_lines_and_skips_blanks_and_comments(self, monkeypatch):
         class _Resp:
