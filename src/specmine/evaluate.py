@@ -432,7 +432,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--curated-only", action="store_true")
     parser.add_argument("--model-path", type=Path, required=True)
-    parser.add_argument("--labels-csv", type=Path)
+    parser.add_argument(
+        "--labels-csv",
+        type=Path,
+        help="Optional CSV with spec_id,label,confidence columns",
+    )
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--output-csv", type=Path)
     parser.add_argument(

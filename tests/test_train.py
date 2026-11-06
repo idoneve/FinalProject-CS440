@@ -98,6 +98,58 @@ def test_train_models_is_deterministic_for_fixed_seed():
     ]["predictions"]
 
 
+def test_train_models_uses_confidence_as_normalized_sample_weight(monkeypatch):
+    features, labels, repositories = training_frames()
+    confidence = pd.Series(np.linspace(0, 100, len(features)))
+    train_indices, _ = train.repository_disjoint_split(
+        features, labels, repositories, test_size=0.2, seed=13
+    )
+    captured_weights = []
+    original_fit = train.Pipeline.fit
+
+    def record_weights(self, x, y, **fit_params):
+        captured_weights.append(fit_params["classifier__sample_weight"].copy())
+        return original_fit(self, x, y, **fit_params)
+
+    monkeypatch.setattr(train.Pipeline, "fit", record_weights)
+
+    train.train_models(
+        features,
+        labels,
+        repositories,
+        confidence_scores=confidence,
+        model_names=["logistic_regression"],
+        seed=13,
+    )
+
+    assert len(captured_weights) == 1
+    np.testing.assert_allclose(
+        captured_weights[0],
+        confidence.iloc[train_indices].to_numpy() / 100,
+    )
+
+
+@pytest.mark.parametrize(
+    "confidence",
+    [
+        [50] * 39,
+        [101] * 40,
+        ["low"] * 40,
+    ],
+)
+def test_train_models_rejects_invalid_confidence_scores(confidence):
+    features, labels, repositories = training_frames()
+
+    with pytest.raises(ValueError, match="confidence_scores"):
+        train.train_models(
+            features,
+            labels,
+            repositories,
+            confidence_scores=confidence,
+            model_names=["logistic_regression"],
+        )
+
+
 def test_repository_disjoint_split_is_seeded_and_keeps_repositories_together():
     features, labels, repositories = training_frames()
 
@@ -168,15 +220,20 @@ def test_prepare_training_data_joins_features_and_supplied_labels():
     )
 
     labels_frame = pd.DataFrame(
-        {"spec_id": ["spec-a", "spec-b"], "label": [1, 0]}
+        {
+            "spec_id": ["spec-a", "spec-b"],
+            "label": [1, 0],
+            "confidence": [80, 60],
+        }
     )
-    features, labels, groups = train.prepare_training_data(
+    features, labels, groups, confidence = train.prepare_training_data(
         data, labels_frame, feature_rows
     )
 
     assert features["file_url_sha16"].tolist() == ["spec-a", "spec-b"]
     assert labels.tolist() == [1, 0]
     assert groups.tolist() == ["owner/one", "owner/two"]
+    assert confidence.tolist() == [80, 60]
     assert "repo_name" not in features
 
 
@@ -204,16 +261,21 @@ def test_prepare_training_data_excludes_blank_labels():
         }
     )
     labels_frame = pd.DataFrame(
-        {"spec_id": ["spec-a", "spec-b"], "label": [1, None]}
+        {
+            "spec_id": ["spec-a", "spec-b"],
+            "label": [1, None],
+            "confidence": [90, None],
+        }
     )
 
-    features, labels, groups = train.prepare_training_data(
+    features, labels, groups, confidence = train.prepare_training_data(
         data, labels_frame, feature_rows
     )
 
     assert features["file_url_sha16"].tolist() == ["spec-a"]
     assert labels.tolist() == [1]
     assert groups.tolist() == ["owner/one"]
+    assert confidence.tolist() == [90]
 
 
 def test_prepare_training_data_applies_sample_limit_after_label_matching():
@@ -239,9 +301,11 @@ def test_prepare_training_data_applies_sample_limit_after_label_matching():
             "has_user_story": [0, 0, 0, 0],
         }
     )
-    labels_frame = pd.DataFrame({"spec_id": ["a", "b"], "label": [0, 1]})
+    labels_frame = pd.DataFrame(
+        {"spec_id": ["a", "b"], "label": [0, 1], "confidence": [50, 100]}
+    )
 
-    features, labels, groups = train.prepare_training_data(
+    features, labels, groups, confidence = train.prepare_training_data(
         data,
         labels_frame,
         feature_rows,
@@ -252,36 +316,39 @@ def test_prepare_training_data_applies_sample_limit_after_label_matching():
     assert features["file_url_sha16"].tolist() == ["a", "b"]
     assert labels.tolist() == [0, 1]
     assert groups.tolist() == ["r-a", "r-b"]
+    assert confidence.tolist() == [50, 100]
 
 
 def test_prepare_training_data_rejects_unknown_labeled_ids():
     data = pd.DataFrame(
         {"file_url_sha16": ["spec-a"], "repo_name": ["owner/one"]}
     )
-    labels_frame = pd.DataFrame({"spec_id": ["not-in-dataset"], "label": [1]})
+    labels_frame = pd.DataFrame(
+        {"spec_id": ["not-in-dataset"], "label": [1], "confidence": [75]}
+    )
 
     with pytest.raises(ValueError, match="do not match the SpecMine dataset"):
         train.prepare_training_data(data, labels_frame, feature_data=pd.DataFrame())
 
 
-def test_manually_labeled_csv_is_parseable_and_flags_conflicting_ids():
+def test_fake_labels_csv_is_parseable_and_collapses_duplicate_ids():
     labels_path = (
-        Path(__file__).resolve().parents[1] / "examples" / "synthetic_labels.csv"
+        Path(__file__).resolve().parents[1] / "examples" / "fake_labels.csv"
     )
 
-    with pytest.warns(UserWarning, match=r"Conflicting labels.*ebf86b98e601f589"):
-        labels = train.read_labels_csv(labels_path)
+    labels = train.read_labels_csv(labels_path)
 
-    assert list(labels.columns) == ["spec_id", "label"]
+    assert list(labels.columns) == ["spec_id", "label", "confidence"]
     assert len(labels) >= 8
     assert labels["spec_id"].is_unique
     assert set(labels["label"].dropna()) == {0, 1}
+    assert labels["confidence"].between(0, 100).all()
 
 
 def test_read_labels_csv_collapses_duplicate_ids_with_same_label(tmp_path):
     labels_path = tmp_path / "labels.csv"
     labels_path.write_text(
-        "spec_id,label\nspec-a,1\nspec-a,1\nspec-b,\n",
+        "spec_id,label,confidence\nspec-a,1,80\nspec-a,1,80\nspec-b,,\n",
         encoding="utf-8",
     )
 
@@ -295,7 +362,7 @@ def test_read_labels_csv_collapses_duplicate_ids_with_same_label(tmp_path):
 def test_read_labels_csv_marks_conflicting_duplicate_ids_ambiguous(tmp_path):
     labels_path = tmp_path / "labels.csv"
     labels_path.write_text(
-        "spec_id,label\nspec-a,0\nspec-b,1\nspec-a,1\n",
+        "spec_id,label,confidence\nspec-a,0,60\nspec-b,1,70\nspec-a,1,80\n",
         encoding="utf-8",
     )
 
@@ -304,7 +371,25 @@ def test_read_labels_csv_marks_conflicting_duplicate_ids_ambiguous(tmp_path):
 
     assert labels["spec_id"].tolist() == ["spec-a", "spec-b"]
     assert pd.isna(labels.loc[labels["spec_id"].eq("spec-a"), "label"]).all()
+    assert pd.isna(labels.loc[labels["spec_id"].eq("spec-a"), "confidence"]).all()
     assert labels.loc[labels["spec_id"].eq("spec-b"), "label"].item() == 1
+
+
+@pytest.mark.parametrize(
+    ("csv_content", "message"),
+    [
+        ("spec_id,label\nspec-a,1\n", "missing required columns"),
+        ("spec_id,label,confidence\nspec-a,1,101\n", "between 0 and 100"),
+        ("spec_id,label,confidence\nspec-a,1,unknown\n", "between 0 and 100"),
+        ("spec_id,label,confidence\nspec-a,1,\n", "required for nonblank labels"),
+    ],
+)
+def test_read_labels_csv_validates_confidence(tmp_path, csv_content, message):
+    labels_path = tmp_path / "labels.csv"
+    labels_path.write_text(csv_content, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        train.read_labels_csv(labels_path)
 
 
 @pytest.mark.parametrize(
@@ -353,17 +438,26 @@ def test_train_models_requires_multiple_repositories():
 def test_main_trains_selected_models_and_saves_them(tmp_path, monkeypatch):
     features, labels, repositories = training_frames()
     labels_path = tmp_path / "labels.csv"
-    labels_path.write_text("spec_id,label\nspec-a,0\n", encoding="utf-8")
+    labels_path.write_text(
+        "spec_id,label,confidence\nspec-a,0,85\n", encoding="utf-8"
+    )
     monkeypatch.setattr(
         train,
         "read_labels_csv",
-        lambda path: pd.DataFrame({"spec_id": ["spec-a"], "label": [0]}),
+        lambda path: pd.DataFrame(
+            {"spec_id": ["spec-a"], "label": [0], "confidence": [85]}
+        ),
     )
     monkeypatch.setattr(train, "load_data", lambda **kwargs: pd.DataFrame({"ok": [1]}))
     monkeypatch.setattr(
         train,
         "prepare_training_data",
-        lambda data, labels_frame, **kwargs: (features, labels, repositories),
+        lambda data, labels_frame, **kwargs: (
+            features,
+            labels,
+            repositories,
+            pd.Series(np.full(len(features), 85)),
+        ),
     )
     model_dir = tmp_path / "cli-models"
 
