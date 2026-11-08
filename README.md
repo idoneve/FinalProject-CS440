@@ -18,12 +18,14 @@ cd path/to/FinalProject-CS440
 python -m pip install -e ".[dev]"
 ```
 
-The notebooks add this repository's `src/` folder to their import path, so they
-do not rely on an editable install to find `specmine`. They print the Python
-interpreter used by their kernel; if imports fail for missing dependencies,
-install them into that interpreter with
-`<python-from-notebook-output> -m pip install -r requirements.txt`. In VS Code,
-choose the intended environment using **Select Kernel** in the notebook.
+Choose the same Python environment for installation and the notebook kernel.
+In VS Code, use **Select Kernel** in each notebook. To confirm which interpreter
+the kernel is using, run `import sys; print(sys.executable)` in a code cell.
+Installing the package in that environment as shown above is recommended;
+some notebooks also add the repository's `src/` folder to their import path.
+If a notebook reports a missing dependency, install the requirements into the
+selected environment with
+`<python-interpreter> -m pip install -r requirements.txt`.
 
 Import `load_data` from the installed `specmine` package:
 
@@ -108,6 +110,68 @@ requested sample is not available, the notebook stops rather than saving an
 undersized result. The sample size and model are configurable. Each run
 publishes predictions to a unique CSV filename after a complete temporary-file
 write, so concurrent runs do not overwrite one another.
+
+## Notebook Quick Start
+
+Open notebooks from the repository and run their code cells from top to
+bottom. The data notebooks need an internet connection to fetch the parquet
+files and GitHub spec Markdown; once cached, the labeling, prediction, and
+results workflows read the parquet files locally.
+
+| Notebook | Purpose and how to use it |
+| --- | --- |
+| `notebooks/data_init.ipynb` | Combined initialization and review workflow. Set `SPEC_SAMPLE_SIZE` and `SEED` near the top, then run all cells. It caches the metadata and feature parquets, downloads a random sample of one spec per repository, writes `notebooks/data/spec_sample.csv`, and displays one unreviewed repository from that sample. The default sample size is 300; `SEED = None` chooses a new sample each run. |
+| `notebooks/initialize_data.ipynb` | Cache initialization without the review display. Set `SPEC_SAMPLE_SIZE` and `SEED`, then run all cells. It downloads the parquets and a random, distinct-repository Markdown sample, and saves the manifest. Use this before the separate labeling or inspection notebooks if you do not use `data_init.ipynb`. |
+| `notebooks/label_specs.ipynb` | Selects one repository not already present in either label CSV from the full cached metadata, downloads one spec from it if needed, and displays its Markdown and features. Add the reviewed `repo_id,spec_id,label,confidence` row to `examples/real_labels.csv` yourself. |
+| `notebooks/show_specs.ipynb` | Inspects existing specs. In its first code cell, set either `REPO_IDS` to one or more repository IDs or `SPEC_IDS` to one or more spec IDs (as a list or comma-separated string), but not both. It displays the selected specs, matched features, and Markdown. |
+| `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model using all nonblank labels, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, and `PREDICTION_SAMPLE_SIZE` near the top to change the inputs. It saves models under `models/` and a uniquely named prediction CSV under `notebooks/`. |
+| `notebooks/results.ipynb` | Builds the dataset and repository-disjoint split summaries, fits fresh confidence-weighted baselines, evaluates them, and saves figures under `notebooks/figures/`. By default it uses the fake-label fixture and reports agreement with those supplied labels, not verified authorship accuracy. |
+
+For either labeling workflow, ambiguous evidence should be recorded with blank
+`label` and `confidence` fields. Nonblank labels must be `0` or `1`, and their
+confidence must be from 0 to 100. Do not copy rows from `fake_labels.csv` into
+`real_labels.csv`; the fake labels and their confidence values are test data.
+The `data_init.ipynb` workflow selects its review repository from the downloaded
+sample, so increase `SPEC_SAMPLE_SIZE` or use `label_specs.ipynb` if that
+sample contains no repository that is still available to review.
+
+## Project Structure
+
+```text
+FinalProject-CS440/
+├── README.md                    # Installation, workflows, and project guide
+├── examples/
+│   ├── fake_labels.csv          # Test labels; not verified authorship data
+│   └── real_labels.csv          # Human-reviewed labels
+├── models/                      # Saved scikit-learn model pipelines
+├── notebooks/
+│   ├── data_init.ipynb          # Combined sample and review workflow
+│   ├── initialize_data.ipynb    # Cache and spec-sample initialization
+│   ├── label_specs.ipynb        # Review one unlabelled repository
+│   ├── show_specs.ipynb         # Inspect specs by repo or spec ID
+│   ├── predict.ipynb            # Train, evaluate, and predict
+│   ├── results.ipynb            # Evaluation summaries and plots
+│   ├── data/                    # Local parquet cache, Markdown, and manifest
+│   └── figures/                 # Generated result plots
+├── src/specmine/
+│   ├── data.py                  # Dataset loading, caching, and downloads
+│   ├── features.py              # Feature preparation
+│   ├── labeling.py              # Leakage-safe review selection and matching
+│   ├── labels.py                # Label CSV parsing and validation
+│   ├── train.py                 # Training and repository-disjoint splitting
+│   └── evaluate.py              # Model evaluation and prediction outputs
+├── tests/                       # Offline unit tests and opt-in network tests
+├── DATA_DICTIONARY.md           # SpecMine dataset and feature reference
+├── schema.sql                   # Database schema reference
+├── pyproject.toml               # Package metadata and development dependencies
+├── requirements.txt             # Runtime dependency list
+├── LICENSE
+└── LICENSE-DATA
+```
+
+The parquet cache, downloaded Markdown, sample manifest, and generated plots
+are local workflow data. Run an initializer again to refresh or create the
+cache; other notebooks may create prediction CSVs and model files when run.
 
 ## Training Baselines
 
