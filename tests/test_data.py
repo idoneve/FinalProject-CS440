@@ -561,7 +561,7 @@ class TestLoadDataFull:
 
         monkeypatch.setattr(sm.pd, "read_parquet", unexpected_read)
 
-        with pytest.raises(FileNotFoundError, match="initialize_data.ipynb"):
+        with pytest.raises(FileNotFoundError, match="data_init.ipynb"):
             sm.load_data(local_data_only=True, data_dir=tmp_path)
 
     def test_local_data_only_rejects_curated_mode(self, tmp_path):

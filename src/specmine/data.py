@@ -392,7 +392,7 @@ def _local_parquet_path(url: str, data_dir=None) -> Path:
     expected = data_dir / "data" / filename
     raise FileNotFoundError(
         f"Local SpecMine parquet not found: {expected}. "
-        "Run notebooks/initialize_data.ipynb first, or omit local_data_only "
+        "Run notebooks/data_init.ipynb first, or omit local_data_only "
         "to load from Hugging Face."
     )
 
@@ -647,7 +647,7 @@ def load_data(
       defaults to notebooks/data.
     - local_data_only: read the local metadata parquet only, without falling
       back to the network. The cache defaults to notebooks/data; files may be
-      nested under data/ as created by initialize_data.ipynb.
+      nested under data/ as created by data_init.ipynb.
     - split=True (or return_splits=True): return a leak-safe (train, test) tuple instead of one frame. No repo_name and no file_content_sha appears on both sides. `test_size` is the approx. fraction of repos assigned to test.
     """
     df = _load_raw(

@@ -61,6 +61,27 @@ def test_excludes_all_previously_labeled_repositories_and_selects_one_spec(
     assert selected.iloc[0]["file_url_sha16"] in {"c1", "c2"}
 
 
+def test_candidate_sample_uses_full_metadata_to_resolve_out_of_sample_labels(
+    spec_metadata,
+):
+    candidates = spec_metadata.loc[
+        spec_metadata["file_url_sha16"].isin(["a2", "c1"])
+    ].copy()
+    real = _labels(["a1"])
+    fake = _labels([])
+
+    selected = select_review_spec(
+        candidates,
+        real,
+        fake,
+        seed=3,
+        label_metadata=spec_metadata,
+    )
+
+    assert len(selected) == 1
+    assert selected.iloc[0]["repo_id"] == "303"
+
+
 def test_repository_id_column_is_checked_against_spec_metadata(spec_metadata):
     real = _labels(["a1"], ["202"])
     fake = _labels([])

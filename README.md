@@ -43,16 +43,17 @@ df = load_data(curated_only=True, sample_size=500, seed=0)
 ```
 
 The loader needs an internet connection to access the dataset. Use
-`notebooks/initialize_data.ipynb` once to download the metadata and
-content-feature parquet files to `notebooks/data/data/`. The notebook-based
-labeling, training, prediction, and results workflows read these local files,
-so repeated runs do not reconnect to Hugging Face. The initializer also
-downloads a configurable random sample of raw spec Markdown (500 files by
-default), with one spec per repository and no duplicate spec IDs. Failed file
-downloads are replaced with candidates from other repositories. Change
-`SPEC_SAMPLE_SIZE` or `SEED` in the initializer notebook as needed. Run it
-again to refresh the parquet cache and sample manifest; already downloaded
-Markdown files are reused.
+`notebooks/data_init.ipynb` to download the metadata and content-feature parquet
+files to `notebooks/data/data/`, then download a configurable random sample of
+raw spec Markdown (300 files by default). The notebook samples one spec per
+repository, then automatically chooses an unreviewed repository from that
+sample and displays its Markdown, exact feature row, and metadata. Repeated
+spec IDs and repositories are excluded from the sample; failed downloads are
+replaced with candidates from other repositories. Change `SPEC_SAMPLE_SIZE`
+or `SEED` near the top of the notebook. The sample manifest is saved as
+`notebooks/data/spec_sample.csv`; already downloaded Markdown files are reused.
+The separate `initialize_data.ipynb`, `label_specs.ipynb`, and
+`show_specs.ipynb` notebooks remain available for those individual workflows.
 
 The Python API can also be told to use the local cache without a network
 fallback:
@@ -71,12 +72,10 @@ directory. If a parquet file is missing, local-only mode raises
 `local_data_only=False`, preserving remote loading. Local-only mode cannot be
 combined with `curated_only=True`, which downloads raw spec files.
 
-Use
-`notebooks/label_specs.ipynb` to choose an unlabeled repository from the full
-metadata parquet and display one random spec's raw Markdown and precomputed
-content features. Only that selected spec is downloaded. Markdown is shown as
-escaped text so remote images and embedded HTML are not rendered. The curated
-downloader accepts only HTTPS URLs on `github.com` and
+Use `notebooks/data_init.ipynb` for the combined sampling and review workflow,
+or `notebooks/label_specs.ipynb` to select an unlabeled repository from the
+full metadata parquet. Markdown is shown as escaped text so remote images and
+embedded HTML are not rendered. The curated downloader accepts only HTTPS URLs on `github.com` and
 `raw.githubusercontent.com` and validates every redirect before following it.
 Use `notebooks/show_specs.ipynb` to inspect existing data by setting either
 `REPO_IDS` (shows all distinct specs in those repositories) or `SPEC_IDS`

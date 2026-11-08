@@ -79,6 +79,7 @@ def select_review_spec(
     real_labels: pd.DataFrame,
     fake_labels: pd.DataFrame,
     seed: int | None = None,
+    label_metadata: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Choose one spec from one unlabeled repository, rejecting label leakage."""
     required = {SPEC_ID_COLUMN, REPO_ID_COLUMN, "repo_name"}
@@ -86,8 +87,9 @@ def select_review_spec(
     if missing:
         raise KeyError(f"SpecMine metadata is missing columns: {sorted(missing)}")
 
-    real_repositories = repositories_for_labels(real_labels, specs)
-    fake_repositories = repositories_for_labels(fake_labels, specs)
+    label_metadata = specs if label_metadata is None else label_metadata
+    real_repositories = repositories_for_labels(real_labels, label_metadata)
+    fake_repositories = repositories_for_labels(fake_labels, label_metadata)
     overlap = real_repositories & fake_repositories
     if overlap:
         raise ValueError(
