@@ -46,9 +46,13 @@ The loader needs an internet connection to access the dataset. Use
 `notebooks/initialize_data.ipynb` once to download the metadata and
 content-feature parquet files to `notebooks/data/data/`. The notebook-based
 labeling, training, prediction, and results workflows read these local files,
-so repeated runs do not reconnect to Hugging Face. Raw spec Markdown is not
-bulk-downloaded by initialization; the labeling notebook downloads only the
-selected spec. Run the initializer again to refresh the parquet cache.
+so repeated runs do not reconnect to Hugging Face. The initializer also
+downloads a configurable random sample of raw spec Markdown (500 files by
+default), with one spec per repository and no duplicate spec IDs. Failed file
+downloads are replaced with candidates from other repositories. Change
+`SPEC_SAMPLE_SIZE` or `SEED` in the initializer notebook as needed. Run it
+again to refresh the parquet cache and sample manifest; already downloaded
+Markdown files are reused.
 
 The Python API can also be told to use the local cache without a network
 fallback:

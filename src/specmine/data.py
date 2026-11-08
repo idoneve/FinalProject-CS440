@@ -6,7 +6,9 @@ import tempfile
 import threading
 import time
 from functools import lru_cache
+from numbers import Integral
 from pathlib import Path
+from typing import Optional
 from urllib.parse import SplitResult, urljoin, urlsplit
 
 import pandas as pd
@@ -227,6 +229,88 @@ def download_spec_files(df: pd.DataFrame, data_dir=None) -> pd.DataFrame:
         )
         print(f"Skipped {len(failures)} unavailable files. First failures: {details}")
     return result
+
+
+def download_random_spec_sample(
+    metadata: pd.DataFrame,
+    sample_size: int,
+    *,
+    seed: Optional[int] = None,
+    data_dir=None,
+) -> pd.DataFrame:
+    """Download a random sample with at most one spec from each repository.
+
+    Duplicate spec IDs are collapsed before sampling. A random candidate order
+    selects one spec per repo ID, and failed downloads are replaced by later
+    unique-repository candidates until the requested number is available.
+    """
+    if not isinstance(sample_size, Integral) or isinstance(sample_size, bool):
+        raise TypeError("sample_size must be an integer")
+    sample_size = int(sample_size)
+    if sample_size < 1:
+        raise ValueError("sample_size must be a positive integer")
+    required = {"repo_id", "repo_name", "file_url_sha16", "file_url"}
+    missing = required - set(metadata.columns)
+    if missing:
+        raise KeyError(f"SpecMine metadata is missing columns: {sorted(missing)}")
+
+    candidates = metadata.dropna(
+        subset=["repo_id", "repo_name", "file_url_sha16", "file_url"]
+    ).copy()
+    candidates["file_url_sha16"] = candidates["file_url_sha16"].astype("string")
+    candidates = candidates.loc[candidates["file_url_sha16"].str.strip().ne("")]
+    id_repository_pairs = candidates[["file_url_sha16", "repo_id"]].drop_duplicates()
+    ambiguous_ids = (
+        id_repository_pairs.groupby("file_url_sha16")["repo_id"]
+        .nunique()
+        .loc[lambda counts: counts > 1]
+        .index
+    )
+    if len(ambiguous_ids):
+        raise ValueError(
+            "Spec IDs map to multiple repositories: "
+            f"{sorted(ambiguous_ids.astype(str))[:10]}"
+        )
+
+    candidates = candidates.drop_duplicates(subset=["file_url_sha16"])
+    candidates = (
+        candidates.groupby("repo_id", group_keys=False, sort=False)
+        .sample(n=1, random_state=seed)
+        .sample(frac=1, random_state=seed)
+        .reset_index(drop=True)
+    )
+    if len(candidates) < sample_size:
+        raise ValueError(
+            f"Requested {sample_size} specs from distinct repositories, but only "
+            f"{len(candidates)} eligible repositories/specs are available."
+        )
+
+    downloaded_batches = []
+    cursor = 0
+    downloaded_ids = set()
+    while len(downloaded_ids) < sample_size and cursor < len(candidates):
+        needed = sample_size - len(downloaded_ids)
+        batch = candidates.iloc[cursor : cursor + needed]
+        cursor += len(batch)
+        downloaded = download_spec_files(batch, data_dir=data_dir)
+        if not downloaded.empty:
+            new_rows = downloaded.loc[
+                ~downloaded["file_url_sha16"].astype("string").isin(downloaded_ids)
+            ]
+            downloaded_batches.append(new_rows)
+            downloaded_ids.update(new_rows["file_url_sha16"].astype("string"))
+
+    if len(downloaded_ids) < sample_size:
+        raise RuntimeError(
+            f"Downloaded {len(downloaded_ids)} of {sample_size} requested specs "
+            "from distinct repositories; remaining candidates were unavailable."
+        )
+
+    result = pd.concat(downloaded_batches, ignore_index=True)
+    result = result.drop_duplicates(subset=["file_url_sha16"]).iloc[:sample_size]
+    if result["repo_id"].duplicated().any():
+        raise RuntimeError("Random spec sample unexpectedly contains duplicate repositories")
+    return result.reset_index(drop=True)
 
 
 def _curated_local_dataframe(

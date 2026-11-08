@@ -282,6 +282,136 @@ class TestDownloadSpecFiles:
         assert all(Path(path).is_file() for path in result["local_path"])
 
 
+class TestDownloadRandomSpecSample:
+    @pytest.fixture
+    def metadata(self):
+        return pd.DataFrame(
+            {
+                "repo_id": [10, 10, 20, 20, 30, 40, 50, 60],
+                "repo_name": [
+                    "owner/a",
+                    "owner/a",
+                    "owner/b",
+                    "owner/b",
+                    "owner/c",
+                    "owner/d",
+                    "owner/e",
+                    "owner/f",
+                ],
+                "file_url_sha16": [
+                    "a1",
+                    "a2",
+                    "b1",
+                    "b2",
+                    "c1",
+                    "d1",
+                    "e1",
+                    "f1",
+                ],
+                "file_url": [f"https://github.com/o/r/blob/s/{i}.md" for i in range(8)],
+            }
+        )
+
+    def test_selects_requested_count_with_distinct_specs_and_repositories(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            sm,
+            "download_spec_files",
+            lambda df, data_dir: df.assign(local_path="cached.md"),
+        )
+
+        result = sm.download_random_spec_sample(
+            metadata, 4, seed=7, data_dir=tmp_path
+        )
+
+        assert len(result) == 4
+        assert result["file_url_sha16"].is_unique
+        assert result["repo_id"].is_unique
+        assert result["local_path"].eq("cached.md").all()
+
+    def test_sample_is_reproducible_for_a_fixed_seed(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            sm,
+            "download_spec_files",
+            lambda df, data_dir: df.assign(local_path="cached.md"),
+        )
+
+        first = sm.download_random_spec_sample(
+            metadata, 4, seed=7, data_dir=tmp_path
+        )
+        second = sm.download_random_spec_sample(
+            metadata, 4, seed=7, data_dir=tmp_path
+        )
+
+        assert first["file_url_sha16"].tolist() == second["file_url_sha16"].tolist()
+
+    def test_replaces_failed_downloads_with_later_distinct_repositories(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        attempted_batches = []
+
+        def fake_download(df, data_dir):
+            attempted_batches.append(df.copy())
+            batch = df.copy()
+            if len(attempted_batches) == 1:
+                batch = batch.iloc[1:]
+            return batch.assign(local_path="cached.md")
+
+        monkeypatch.setattr(sm, "download_spec_files", fake_download)
+
+        result = sm.download_random_spec_sample(
+            metadata, 3, seed=7, data_dir=tmp_path
+        )
+
+        assert len(attempted_batches) == 2
+        assert len(result) == 3
+        assert result["repo_id"].is_unique
+        assert result["file_url_sha16"].is_unique
+        assert not set(attempted_batches[0]["repo_id"]) & set(
+            attempted_batches[1]["repo_id"]
+        )
+
+    def test_collapses_duplicate_spec_ids_before_sampling(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        duplicate = metadata.iloc[[0]].copy()
+        duplicate["file_url"] = "https://github.com/o/r/blob/other/duplicate.md"
+        metadata = pd.concat([metadata, duplicate], ignore_index=True)
+        monkeypatch.setattr(
+            sm,
+            "download_spec_files",
+            lambda df, data_dir: df.assign(local_path="cached.md"),
+        )
+
+        result = sm.download_random_spec_sample(
+            metadata, 5, seed=11, data_dir=tmp_path
+        )
+
+        assert len(result) == 5
+        assert result["file_url_sha16"].is_unique
+        assert result["repo_id"].is_unique
+
+    def test_rejects_spec_id_mapped_to_multiple_repositories(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        ambiguous = metadata.iloc[[0]].copy()
+        ambiguous["repo_id"] = 999
+        ambiguous["repo_name"] = "owner/other"
+        metadata = pd.concat([metadata, ambiguous], ignore_index=True)
+
+        with pytest.raises(ValueError, match="multiple repositories"):
+            sm.download_random_spec_sample(metadata, 2, seed=1, data_dir=tmp_path)
+
+    def test_rejects_request_larger_than_unique_repository_count(
+        self, metadata, tmp_path
+    ):
+        with pytest.raises(ValueError, match="only 6 eligible repositories"):
+            sm.download_random_spec_sample(metadata, 7, seed=1, data_dir=tmp_path)
+
+
 class TestFetchSampleRepoNames:
     def test_parses_lines_and_skips_blanks_and_comments(self, monkeypatch):
         class _Resp:
