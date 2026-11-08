@@ -463,7 +463,13 @@ def test_main_trains_selected_models_and_saves_them(tmp_path, monkeypatch):
             {"spec_id": ["spec-a"], "label": [0], "confidence": [85]}
         ),
     )
-    monkeypatch.setattr(train, "load_data", lambda **kwargs: pd.DataFrame({"ok": [1]}))
+    data_options = {}
+
+    def fake_load_data(**kwargs):
+        data_options.update(kwargs)
+        return pd.DataFrame({"ok": [1]})
+
+    monkeypatch.setattr(train, "load_data", fake_load_data)
     monkeypatch.setattr(
         train,
         "prepare_training_data",
@@ -486,11 +492,16 @@ def test_main_trains_selected_models_and_saves_them(tmp_path, monkeypatch):
             "logistic_regression",
             "--model-dir",
             str(model_dir),
+            "--local-data-only",
+            "--data-dir",
+            str(tmp_path / "cache"),
         ]
     )
 
     assert status == 0
     assert (model_dir / "logistic_regression.joblib").is_file()
+    assert data_options["local_data_only"] is True
+    assert data_options["data_dir"] == tmp_path / "cache"
 
 
 def test_main_requires_labels_before_loading_data(capsys):

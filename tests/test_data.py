@@ -156,6 +156,26 @@ class TestLoadFeatureData:
         ]
         assert read_calls == [(sm.FEATURES_PARQUET_URL, "fastparquet")]
 
+    def test_loads_feature_table_from_local_cache(self, monkeypatch, tmp_path):
+        feature_df = pd.DataFrame(
+            {"file_url_sha16": ["a"], "n_lines": [1]}
+        )
+        parquet_path = tmp_path / "data" / "spec_content_features.parquet"
+        parquet_path.parent.mkdir()
+        parquet_path.touch()
+        read_calls = []
+
+        def fake_read_parquet(path, engine=None):
+            read_calls.append((Path(path), engine))
+            return feature_df.copy()
+
+        monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
+
+        result = sm.load_feature_data(local_data_only=True, data_dir=tmp_path)
+
+        assert result.equals(feature_df)
+        assert read_calls == [(parquet_path, "fastparquet")]
+
 
 class TestBlobToRaw:
     def test_converts_standard_blob_url(self):
@@ -385,6 +405,68 @@ class TestLoadDataFull:
         assert isinstance(out, tuple) and len(out) == 2
         train, test = out
         sm.assert_no_leakage(train, test)
+
+    def test_local_data_only_loads_parquet_from_cache(self, monkeypatch, tmp_path):
+        parquet_path = tmp_path / "data" / "spec_files.parquet"
+        parquet_path.parent.mkdir()
+        parquet_path.touch()
+        read_calls = []
+
+        def fake_read_parquet(path, engine=None):
+            read_calls.append((Path(path), engine))
+            return pd.DataFrame({"repo_name": ["owner/repo"]})
+
+        monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
+
+        result = sm.load_data(local_data_only=True, data_dir=tmp_path)
+
+        assert result["repo_name"].tolist() == ["owner/repo"]
+        assert read_calls == [(parquet_path, "fastparquet")]
+
+    def test_local_data_only_missing_file_fails_without_remote_fallback(
+        self, monkeypatch, tmp_path
+    ):
+        def unexpected_read(*args, **kwargs):
+            raise AssertionError("read_parquet should not be called for a missing cache")
+
+        monkeypatch.setattr(sm.pd, "read_parquet", unexpected_read)
+
+        with pytest.raises(FileNotFoundError, match="initialize_data.ipynb"):
+            sm.load_data(local_data_only=True, data_dir=tmp_path)
+
+    def test_local_data_only_rejects_curated_mode(self, tmp_path):
+        with pytest.raises(ValueError, match="curated_only"):
+            sm.load_data(
+                curated_only=True,
+                local_data_only=True,
+                data_dir=tmp_path,
+            )
+
+
+def test_download_dataset_parquets_uses_local_huggingface_directory(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    def fake_download(**kwargs):
+        calls.append(kwargs)
+        path = tmp_path / kwargs["filename"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        return str(path)
+
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", fake_download)
+
+    result = sm.download_dataset_parquets(tmp_path)
+
+    assert set(result) == {"spec_files.parquet", "spec_content_features.parquet"}
+    assert all(path.is_file() for path in result.values())
+    assert [call["filename"] for call in calls] == [
+        "data/spec_files.parquet",
+        "data/spec_content_features.parquet",
+    ]
+    assert all(call["repo_id"] == sm.DATASET_REPO_ID for call in calls)
+    assert all(call["repo_type"] == "dataset" for call in calls)
 
 
 class TestLoadDataCurated:

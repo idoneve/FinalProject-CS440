@@ -48,6 +48,8 @@ def prepare_training_data(
     *,
     sample_size: int | None = None,
     seed: int = 42,
+    local_data_only: bool = False,
+    data_dir: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, pd.Series, pd.Series]:
     """Build features, supplied labels, and repository groups for labeled data.
 
@@ -147,7 +149,11 @@ def prepare_training_data(
         LOGGER.info(
             "Loading precomputed features for %d labeled specs", len(training_rows)
         )
-        feature_data = load_feature_data(training_rows[[ID_COLUMN]])
+        feature_data = load_feature_data(
+            training_rows[[ID_COLUMN]],
+            local_data_only=local_data_only,
+            data_dir=data_dir,
+        )
     if feature_data is None or feature_data.empty:
         raise ValueError("No precomputed feature rows were found for labeled specs")
 
@@ -463,6 +469,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--test-size", type=float, default=0.2)
+    parser.add_argument("--data-dir", type=Path)
+    parser.add_argument(
+        "--local-data-only",
+        action="store_true",
+        help="Read metadata and feature parquet files from the local cache only",
+    )
     parser.add_argument("--model-dir", type=Path)
     parser.add_argument(
         "--models",
@@ -495,7 +507,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         labels_frame = read_labels_csv(args.labels_csv)
         LOGGER.info("Loading SpecMine metadata for the supplied label IDs")
-        data: DataFrame = load_data(seed=args.seed)
+        data: DataFrame = load_data(
+            seed=args.seed,
+            local_data_only=args.local_data_only,
+            data_dir=args.data_dir,
+        )
         if data is None:
             raise RuntimeError("SpecMine data loading failed")
         features, labels, groups, confidence_scores = prepare_training_data(
@@ -503,6 +519,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             labels_frame,
             sample_size=args.sample_size,
             seed=args.seed,
+            local_data_only=args.local_data_only,
+            data_dir=args.data_dir,
         )
         results = train_models(
             features,

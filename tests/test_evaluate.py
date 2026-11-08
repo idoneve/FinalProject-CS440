@@ -162,7 +162,7 @@ def test_main_joins_labels_and_writes_json_and_csv(tmp_path, monkeypatch):
     monkeypatch.setattr(
         evaluate,
         "load_feature_data",
-        lambda ids: feature_frame.loc[
+        lambda ids, **kwargs: feature_frame.loc[
             feature_frame["file_url_sha16"].isin(ids["file_url_sha16"])
         ].copy(),
     )
@@ -178,6 +178,7 @@ def test_main_joins_labels_and_writes_json_and_csv(tmp_path, monkeypatch):
             "test",
             "--data-dir",
             str(tmp_path / "cache"),
+            "--local-data-only",
             "--output-json",
             str(output_json),
             "--output-csv",
@@ -189,6 +190,7 @@ def test_main_joins_labels_and_writes_json_and_csv(tmp_path, monkeypatch):
     predictions = pd.read_csv(output_csv)
     assert status == 0
     assert seen_options["data_dir"] == tmp_path / "cache"
+    assert seen_options["local_data_only"] is True
     assert result["n_examples"] == 1
     assert result["n_labeled"] == 1
     assert result["n_unlabeled"] == 1
@@ -233,7 +235,7 @@ def test_main_without_labels_writes_predictions_only(tmp_path, monkeypatch):
     monkeypatch.setattr(
         evaluate,
         "load_feature_data",
-        lambda ids: feature_frame.loc[
+        lambda ids, **kwargs: feature_frame.loc[
             feature_frame["file_url_sha16"].isin(ids["file_url_sha16"])
         ].copy(),
     )

@@ -43,6 +43,31 @@ df = load_data(curated_only=True, sample_size=500, seed=0)
 ```
 
 The loader needs an internet connection to access the dataset. Use
+`notebooks/initialize_data.ipynb` once to download the metadata and
+content-feature parquet files to `notebooks/data/data/`. The notebook-based
+labeling, training, prediction, and results workflows read these local files,
+so repeated runs do not reconnect to Hugging Face. Raw spec Markdown is not
+bulk-downloaded by initialization; the labeling notebook downloads only the
+selected spec. Run the initializer again to refresh the parquet cache.
+
+The Python API can also be told to use the local cache without a network
+fallback:
+
+```python
+from specmine.data import load_data, load_feature_data
+
+metadata = load_data(local_data_only=True)
+features = load_feature_data(local_data_only=True)
+```
+
+By default, local-only loading looks under this repository's
+`notebooks/data/data/`; pass `data_dir=...` to use a different cache
+directory. If a parquet file is missing, local-only mode raises
+`FileNotFoundError` and never falls back to the network. The default remains
+`local_data_only=False`, preserving remote loading. Local-only mode cannot be
+combined with `curated_only=True`, which downloads raw spec files.
+
+Use
 `notebooks/label_specs.ipynb` to choose an unlabeled repository from the full
 metadata parquet and display one random spec's raw Markdown and precomputed
 content features. Only that selected spec is downloaded. Markdown is shown as
@@ -86,6 +111,7 @@ data.
 
 ```bash
 python -m specmine.train --labels-csv labels.csv --seed 42 \
+  --local-data-only \
   --model-dir models/baselines
 ```
 
@@ -136,7 +162,7 @@ Save a fitted sklearn pipeline with `joblib`, then evaluate a split:
 
 ```bash
 python -m specmine.evaluate --model-path models/specmine.joblib \
-  --labels-csv labels.csv --split test \
+  --labels-csv labels.csv --split test --local-data-only \
   --output-json metrics.json --output-csv predictions.csv
 ```
 

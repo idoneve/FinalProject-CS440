@@ -239,13 +239,19 @@ def _attach_labels(df: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:
     return result.drop(columns=["_spec_id_join", "spec_id", "_label_merge"])
 
 
-def _load_features(df: pd.DataFrame) -> pd.DataFrame:
+def _load_features(
+    df: pd.DataFrame, *, local_data_only=False, data_dir=None
+) -> pd.DataFrame:
     """Join the cached SpecMine features and apply the shared feature builder."""
     if ID_COLUMN not in df.columns:
         raise ValueError(f"Loaded SpecMine data is missing identifier {ID_COLUMN!r}")
     if df[ID_COLUMN].duplicated().any():
         raise ValueError(f"Loaded SpecMine data contains duplicate {ID_COLUMN} values")
-    raw_features = load_feature_data(df[[ID_COLUMN]])
+    raw_features = load_feature_data(
+        df[[ID_COLUMN]],
+        local_data_only=local_data_only,
+        data_dir=data_dir,
+    )
     engineered = build_features(raw_features)
     missing_ids = df.loc[~df[ID_COLUMN].isin(engineered[ID_COLUMN]), ID_COLUMN]
     if not missing_ids.empty:
@@ -306,6 +312,7 @@ def _load_selected_data(
         "sample_size": args.sample_size,
         "seed": args.seed,
         "data_dir": args.data_dir,
+        "local_data_only": args.local_data_only,
     }
     if args.split == "all":
         data: DataFrame = load_data(**load_options)
@@ -341,7 +348,11 @@ def _evaluate(args: argparse.Namespace) -> dict[str, typing.Any]:
     data = _load_selected_data(args, labels)
     if data.empty:
         raise ValueError(f"The selected {args.split!r} split is empty")
-    data = _load_features(data)
+    data = _load_features(
+        data,
+        local_data_only=args.local_data_only,
+        data_dir=args.data_dir,
+    )
 
     n_unlabeled = 0
     n_unmatched = 0
@@ -427,10 +438,15 @@ def _print_summary(result: dict[str, typing.Any]) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser."""
     parser = argparse.ArgumentParser(description="Evaluate a SpecMine classifier.")
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--sample-size", type=int)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--curated-only", action="store_true")
+    parser.add_argument(
+        "--local-data-only",
+        action="store_true",
+        help="Read metadata and feature parquet files from the local cache only",
+    )
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument(
         "--labels-csv",
