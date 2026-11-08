@@ -120,3 +120,19 @@ def test_real_label_template_keeps_training_columns_and_repo_identity():
 
     assert labels.empty
     assert {"repo_id", "spec_id", "label", "confidence"} <= set(labels.columns)
+
+
+def test_fake_label_fixture_has_repo_ids_and_preserves_duplicate_rows():
+    labels_path = Path(__file__).resolve().parents[1] / "examples" / "fake_labels.csv"
+    labels = pd.read_csv(labels_path, dtype={"spec_id": "string"})
+    duplicate_id = "c8fa12389f12500c"
+
+    assert labels.columns.tolist() == ["repo_id", "spec_id", "label", "confidence"]
+    assert labels["repo_id"].notna().all()
+    assert labels["spec_id"].notna().all()
+    duplicate_repo_ids = (
+        labels.loc[labels["spec_id"].eq(duplicate_id), "repo_id"]
+        .astype(str)
+        .tolist()
+    )
+    assert duplicate_repo_ids == ["1183842687", "1183842687"]

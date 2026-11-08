@@ -74,6 +74,11 @@ content features. Only that selected spec is downloaded. Markdown is shown as
 escaped text so remote images and embedded HTML are not rendered. The curated
 downloader accepts only HTTPS URLs on `github.com` and
 `raw.githubusercontent.com` and validates every redirect before following it.
+Use `notebooks/show_specs.ipynb` to inspect existing data by setting either
+`REPO_IDS` (shows all distinct specs in those repositories) or `SPEC_IDS`
+(shows those specs). Each setting accepts a list or comma-separated string. It
+displays each selected file and its exactly matched feature row; missing
+metadata, features, or spec files are reported explicitly.
 Record one reviewed row in `examples/real_labels.csv` using
 `repo_id,spec_id,label,confidence`. `repo_id` identifies the repository for
 leakage prevention; `spec_id` identifies the exact spec and remains the model
@@ -87,9 +92,11 @@ metadata parquet. The displayed feature table is content-based; commit history
 is not used for labeling or by the current training/evaluation workflow.
 
 `examples/fake_labels.csv` is the test fixture used by the training and results
-notebooks. Its deterministic confidence values are test data, not verified
-assessments. Do not copy fake rows into the real-label file or interpret fake
-confidence values as reviewed assessments. Use `notebooks/predict.ipynb` to
+notebooks. It includes both `spec_id` and the corresponding `repo_id` for
+repository-level leakage checks. Its deterministic confidence values are test
+data, not verified assessments. Do not copy fake rows into the real-label file
+or interpret fake confidence values as reviewed assessments. Use
+`notebooks/predict.ipynb` to
 train and evaluate one selected baseline using matched, nonblank labels, then
 refit on all labeled specs and
 predict a random sample of 100 specs not listed in the labels CSV. Specs

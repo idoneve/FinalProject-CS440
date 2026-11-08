@@ -338,9 +338,10 @@ def test_fake_labels_csv_is_parseable_and_collapses_duplicate_ids():
 
     labels = train.read_labels_csv(labels_path)
 
-    assert list(labels.columns) == ["spec_id", "label", "confidence"]
+    assert list(labels.columns) == ["repo_id", "spec_id", "label", "confidence"]
     assert len(labels) >= 8
     assert labels["spec_id"].is_unique
+    assert labels["repo_id"].notna().all()
     assert set(labels["label"].dropna()) == {0, 1}
     assert labels["confidence"].between(0, 100).all()
 
