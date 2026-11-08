@@ -43,26 +43,30 @@ df = load_data(curated_only=True, sample_size=500, seed=0)
 ```
 
 The loader needs an internet connection to access the dataset. Use
-`notebooks/label_specs.ipynb` to sample a curated repository and display its
-raw spec markdown and `spec_id` values for manual labeling. Markdown is shown
-as escaped text so remote images and embedded HTML are not rendered. The
-curated downloader accepts only HTTPS URLs on `github.com` and
+`notebooks/label_specs.ipynb` to choose an unlabeled repository from the full
+metadata parquet and display one random spec's raw Markdown and precomputed
+content features. Only that selected spec is downloaded. Markdown is shown as
+escaped text so remote images and embedded HTML are not rendered. The curated
+downloader accepts only HTTPS URLs on `github.com` and
 `raw.githubusercontent.com` and validates every redirect before following it.
-Record reviewed labels in `examples/real_labels.csv` using the columns
-`spec_id,label,confidence`. Use `1` if AI was used at any point, `0` if it was
-not, and leave the label and confidence blank if evidence is ambiguous. A
-confidence score is a numeric value from 0 to 100 describing certainty in the
-assigned label. The labeling notebook reviews one repository per run; repeat it
-for a different repository until labels cover at least two repositories, as
-training requires a repository-disjoint holdout.
+Record one reviewed row in `examples/real_labels.csv` using
+`repo_id,spec_id,label,confidence`. `repo_id` identifies the repository for
+leakage prevention; `spec_id` identifies the exact spec and remains the model
+feature join key. Use `1` if AI was used at any point, `0` if it was not, and
+leave label and confidence blank if evidence is ambiguous. A confidence score
+is a numeric value from 0 to 100 describing certainty in the assigned label.
+The notebook rejects repositories shared by `real_labels.csv` and
+`fake_labels.csv`, and excludes repositories already in either file from
+selection. Fake-label spec IDs are resolved to repository IDs through the
+metadata parquet. The displayed feature table is content-based; commit history
+is not used for labeling or by the current training/evaluation workflow.
 
 `examples/fake_labels.csv` is the test fixture used by the training and results
-notebooks. For now, `real_labels.csv` and `fake_labels.csv` contain the same
-label rows and matching deterministic random confidence values across the
-0–100 range. These confidence values are test data, not verified assessments;
-replace them with reviewed confidence scores before interpreting model
-performance. Use `notebooks/predict.ipynb` to train and evaluate one selected
-baseline using matched, nonblank labels, then refit on all labeled specs and
+notebooks. Its deterministic confidence values are test data, not verified
+assessments. Do not copy fake rows into the real-label file or interpret fake
+confidence values as reviewed assessments. Use `notebooks/predict.ipynb` to
+train and evaluate one selected baseline using matched, nonblank labels, then
+refit on all labeled specs and
 predict a random sample of 100 specs not listed in the labels CSV. Specs
 without precomputed features are replaced from the unlabeled pool; if the full
 requested sample is not available, the notebook stops rather than saving an
@@ -85,9 +89,12 @@ python -m specmine.train --labels-csv labels.csv --seed 42 \
   --model-dir models/baselines
 ```
 
-The CSV columns are `spec_id,label,confidence`: `spec_id` matches
+The training CSV requires `spec_id,label,confidence`: `spec_id` matches
 `file_url_sha16`, `label` is `0`, `1`, or blank, and `confidence` is a numeric
-score from 0 through 100. Every nonblank label must have a confidence score.
+score from 0 through 100. The manual-label CSV may additionally include
+`repo_id` for repository-level exclusion checks; training continues to join
+labels to features by `spec_id`. Every nonblank label must have a confidence
+score.
 Blank labels are excluded from training. The training code passes
 `confidence / 100` as a sample weight, so a score of 0 contributes no weight
 and 100 contributes full weight. Holdout metrics remain unweighted. Omit
