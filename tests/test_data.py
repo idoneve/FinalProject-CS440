@@ -93,6 +93,8 @@ def fake_raw_response(monkeypatch):
 
 @pytest.fixture
 def patched_parquet(monkeypatch, fake_parquet_df, tmp_path):
+    monkeypatch.setattr(sm, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(sm, "DEFAULT_LOCAL_DATA_DIR", tmp_path)
     curated_df = fake_parquet_df.loc[
         fake_parquet_df["repo_name"].isin({"alice/repoA", "carol/repoC"})
     ].copy()
@@ -119,22 +121,29 @@ class TestLoadFeatureData:
         yield
         sm._load_feature_table.cache_clear()
 
-    def test_loads_and_filters_feature_table(self, monkeypatch):
+    def test_loads_and_filters_feature_table(self, monkeypatch, tmp_path):
         feature_df = pd.DataFrame(
             {
                 "file_url_sha16": ["a", "b", "c"],
                 "n_lines": [1, 2, 3],
             }
         )
+        parquet_path = tmp_path / "data" / "spec_content_features.parquet"
+        parquet_path.parent.mkdir()
+        parquet_path.touch()
 
         def fake_read_parquet(url, engine=None):
-            assert Path(url).name == "spec_content_features.parquet"
+            assert Path(url) == parquet_path
             assert engine == "fastparquet"
             return feature_df.copy()
 
         monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
 
-        result = sm.load_feature_data(pd.DataFrame({"file_url_sha16": ["b", "c"]}))
+        result = sm.load_feature_data(
+            pd.DataFrame({"file_url_sha16": ["b", "c"]}),
+            local_data_only=True,
+            data_dir=tmp_path,
+        )
 
         assert result["file_url_sha16"].tolist() == ["b", "c"]
         assert result[["file_url_sha16", "n_lines"]].to_dict("records") == [
@@ -272,6 +281,23 @@ class TestSafeFilename:
         a = sm._safe_local_filename("o/r", "a/spec.md", "")
         b = sm._safe_local_filename("o/r", "b/spec.md", "")
         assert a != b
+
+    def test_missing_path_and_sha_use_url_specific_cache_identity(self, tmp_path):
+        first = pd.Series(
+            {
+                "repo_name": "o/r",
+                "file_path": pd.NA,
+                "file_sha": pd.NA,
+                "file_last_commit_sha": pd.NA,
+                "file_url": "https://github.com/o/r/blob/main/first.md",
+            }
+        )
+        second = first.copy()
+        second["file_url"] = "https://github.com/o/r/blob/main/second.md"
+
+        assert sm._spec_local_path(first, tmp_path) != sm._spec_local_path(
+            second, tmp_path
+        )
 
     def test_full_sha_distinguishes_shared_prefixes(self):
         a = sm._safe_local_filename("o/r", "spec.md", "deadbeef" + "a" * 56)
@@ -480,6 +506,46 @@ class TestDownloadRandomSpecSample:
         assert not set(attempted_batches[0]["repo_id"]) & set(
             attempted_batches[1]["repo_id"]
         )
+
+    def test_replaces_empty_download_with_later_candidate(
+        self, monkeypatch, tmp_path
+    ):
+        metadata = pd.DataFrame(
+            {
+                "repo_id": [1, 2],
+                "repo_name": ["o/first", "o/second"],
+                "file_url_sha16": ["first", "second"],
+                "file_url": [
+                    "https://github.com/o/first/blob/main/spec.md",
+                    "https://github.com/o/second/blob/main/spec.md",
+                ],
+                "file_path": ["spec.md", "spec.md"],
+                "file_sha": ["sha1", "sha2"],
+            }
+        )
+        requested_urls = []
+
+        class Response:
+            headers = {"Content-Type": "text/plain"}
+
+            def __init__(self, content):
+                self.content = content
+
+            def raise_for_status(self):
+                pass
+
+        def fake_response(url, *, timeout):
+            requested_urls.append(url)
+            content = b"" if len(requested_urls) == 1 else b"# spec\n"
+            return Response(content)
+
+        monkeypatch.setattr(sm, "_get_github_response", fake_response)
+
+        result = sm.download_random_spec_sample(metadata, 1, seed=0, data_dir=tmp_path)
+
+        assert len(requested_urls) == 2
+        assert len(result) == 1
+        assert Path(result.iloc[0]["local_path"]).stat().st_size > 0
 
     def test_collapses_duplicate_spec_ids_before_sampling(
         self, metadata, monkeypatch, tmp_path

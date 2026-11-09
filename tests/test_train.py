@@ -619,6 +619,23 @@ def test_read_labels_csv_trims_whitespace_from_column_names(tmp_path):
     assert labels.loc[0, "confidence"] == 80
 
 
+def test_read_labels_csv_preserves_leading_zeros_with_padded_spec_id_header(
+    tmp_path,
+):
+    labels_path = tmp_path / "labels.csv"
+    spec_id = "0123456789012345"
+    labels_path.write_text(
+        f" spec_id ,label,confidence\n{spec_id},1,80\n",
+        encoding="utf-8",
+    )
+
+    labels = train.read_labels_csv(labels_path)
+
+    assert labels.loc[0, "spec_id"] == spec_id
+    assert labels.loc[0, "label"] == 1
+    assert labels.loc[0, "confidence"] == 80
+
+
 def test_read_labels_csv_marks_conflicting_duplicate_ids_ambiguous(tmp_path):
     labels_path = tmp_path / "labels.csv"
     labels_path.write_text(

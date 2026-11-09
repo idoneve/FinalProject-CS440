@@ -186,6 +186,8 @@ def _download_file(url: str, dest: Path) -> bool:
         ) as temp_file:
             temp_path = Path(temp_file.name)
             temp_file.write(r.content)
+        if temp_path.stat().st_size == 0:
+            raise ValueError("downloaded spec file is empty")
         os.replace(temp_path, dest)
         temp_path = None
         return True
