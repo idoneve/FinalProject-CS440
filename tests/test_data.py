@@ -411,6 +411,35 @@ class TestDownloadRandomSpecSample:
         with pytest.raises(ValueError, match="only 6 eligible repositories"):
             sm.download_random_spec_sample(metadata, 7, seed=1, data_dir=tmp_path)
 
+    def test_local_only_uses_cached_specs_without_downloading(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        metadata["file_path"] = [f"{spec_id}.md" for spec_id in metadata["file_url_sha16"]]
+        metadata["file_sha"] = metadata["file_url_sha16"]
+        cached_rows = metadata.iloc[[1, 2]]
+        for _, row in cached_rows.iterrows():
+            path = sm._spec_local_path(row, tmp_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# cached spec\n")
+
+        def unexpected_download(*args, **kwargs):
+            raise AssertionError("local-only sampling must not download specs")
+
+        monkeypatch.setattr(sm, "download_spec_files", unexpected_download)
+
+        result = sm.download_random_spec_sample(
+            metadata,
+            5,
+            seed=7,
+            data_dir=tmp_path,
+            local_data_only=True,
+        )
+
+        assert len(result) == len(cached_rows)
+        assert result["repo_id"].is_unique
+        assert result["file_url_sha16"].is_unique
+        assert all(Path(path).is_file() for path in result["local_path"])
+
 
 class TestFetchSampleRepoNames:
     def test_parses_lines_and_skips_blanks_and_comments(self, monkeypatch):

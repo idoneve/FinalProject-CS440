@@ -44,16 +44,19 @@ from specmine.data import load_data
 df = load_data(curated_only=True, sample_size=500, seed=0)
 ```
 
-The loader needs an internet connection to access the dataset. Use
-`notebooks/data_init.ipynb` to reuse the metadata and content-feature parquet
-files already in `notebooks/data/`, or download them there if either is missing.
-It then downloads or reuses a configurable random sample of raw spec Markdown
-(300 files by default), with one unique spec per repository, and chooses an
-unreviewed repository from that downloaded sample to display its Markdown,
-exact feature row, and metadata. Repeated spec IDs and repositories are excluded
-from the sample; failed downloads are replaced with candidates from other
-repositories. Change `SPEC_SAMPLE_SIZE` or `SEED` near the top of the notebook.
-The sample manifest is saved as `notebooks/data/spec_sample.csv`.
+Use `notebooks/data_init.ipynb` to work from the local metadata and
+content-feature parquet files in `notebooks/data/`. With
+`LOCAL_DATA_ONLY = True`, the notebook never downloads parquet or raw spec
+files and samples up to `SPEC_SAMPLE_SIZE` (300 by default) from raw specs
+already cached there. If fewer raw specs are cached, it uses the available
+files; if a parquet file is missing, it raises an error. Set
+`LOCAL_DATA_ONLY = False` to allow missing parquet files and raw specs to be
+downloaded. The notebook chooses an unreviewed repository from the sample to
+display its Markdown, exact feature row, and metadata. Repeated spec IDs and
+repositories are excluded; failed downloads are replaced with candidates from
+other repositories when downloads are enabled. Change `SPEC_SAMPLE_SIZE` or
+`SEED` near the top of the notebook. The sample manifest is saved as
+`notebooks/data/spec_sample.csv`.
 
 The Python API can also be told to use the local cache without a network
 fallback:

@@ -143,6 +143,18 @@ def _safe_local_filename(repo_name: str, file_path: str, sha: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", base)
 
 
+def _spec_local_path(row: pd.Series, data_dir: Path) -> Path:
+    repo = row["repo_name"]
+    file_path = row.get("file_path", "")
+    file_path = "" if pd.isna(file_path) else str(file_path)
+    sha = row.get("file_sha", "")
+    sha = "" if pd.isna(sha) else str(sha)
+    if not sha:
+        sha = row.get("file_last_commit_sha", "")
+        sha = "" if pd.isna(sha) else str(sha)
+    return data_dir / _safe_local_filename(repo, file_path, sha)
+
+
 def _download_file(url: str, dest: Path) -> bool:
     """
     Download a single file, skipping if already present.
@@ -197,20 +209,13 @@ def download_spec_files(df: pd.DataFrame, data_dir=None) -> pd.DataFrame:
         i = position + 1
         repo = row["repo_name"]
         blob_url = row["file_url"]
-        file_path = row.get("file_path", "")
-        file_path = "" if pd.isna(file_path) else str(file_path)
-        sha = row.get("file_sha", "")
-        sha = "" if pd.isna(sha) else str(sha)
-        if not sha:
-            sha = row.get("file_last_commit_sha", "")
-            sha = "" if pd.isna(sha) else str(sha)
         try:
             if not isinstance(repo, str) or not repo:
                 raise ValueError("Repository name is missing")
             if not isinstance(blob_url, str):
                 raise ValueError("File URL is missing")
             raw_url = _blob_to_raw(blob_url)
-            dest = data_dir / _safe_local_filename(repo, file_path, sha)
+            dest = _spec_local_path(row, data_dir)
             _download_file(raw_url, dest)
             successful_positions.append(position)
             local_paths.append(str(dest))
@@ -237,12 +242,14 @@ def download_random_spec_sample(
     *,
     seed: Optional[int] = None,
     data_dir=None,
+    local_data_only=False,
 ) -> pd.DataFrame:
-    """Download a random sample with at most one spec from each repository.
+    """Return a random sample with at most one spec from each repository.
 
     Duplicate spec IDs are collapsed before sampling. A random candidate order
-    selects one spec per repo ID, and failed downloads are replaced by later
-    unique-repository candidates until the requested number is available.
+    selects one spec per repo ID. In local-only mode, only existing non-empty
+    files are used and the result may contain fewer than ``sample_size`` rows.
+    Otherwise failed downloads are replaced by later candidates.
     """
     if not isinstance(sample_size, Integral) or isinstance(sample_size, bool):
         raise TypeError("sample_size must be an integer")
@@ -273,17 +280,32 @@ def download_random_spec_sample(
         )
 
     candidates = candidates.drop_duplicates(subset=["file_url_sha16"])
+    if local_data_only:
+        data_dir = DEFAULT_LOCAL_DATA_DIR if data_dir is None else Path(data_dir)
+        candidates["local_path"] = candidates.apply(
+            lambda row: str(_spec_local_path(row, data_dir)), axis=1
+        )
+        cached_paths = candidates["local_path"].map(Path)
+        candidates = candidates.loc[
+            cached_paths.map(lambda path: path.is_file() and path.stat().st_size > 0)
+        ].copy()
+
+    if candidates.empty and local_data_only:
+        return candidates.assign(local_path=pd.Series(dtype="string"))
     candidates = (
         candidates.groupby("repo_id", group_keys=False, sort=False)
         .sample(n=1, random_state=seed)
         .sample(frac=1, random_state=seed)
         .reset_index(drop=True)
     )
-    if len(candidates) < sample_size:
+    if len(candidates) < sample_size and not local_data_only:
         raise ValueError(
             f"Requested {sample_size} specs from distinct repositories, but only "
             f"{len(candidates)} eligible repositories/specs are available."
         )
+    if local_data_only:
+        result = candidates.iloc[:sample_size].copy()
+        return result.reset_index(drop=True)
 
     downloaded_batches = []
     cursor = 0
