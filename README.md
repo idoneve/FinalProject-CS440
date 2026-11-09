@@ -33,33 +33,52 @@ Import `load_data` from the installed `specmine` package:
 python -c 'from specmine.data import load_data; df = load_data(sample_size=5, seed=0); print(df.head() if df is not None else "Dataset load failed")'
 ```
 
-The default call reads the full parquet dataset. `sample_size` limits the
-returned DataFrame but does not reduce the remote parquet download or its
-memory use. Use `curated_only=True` to load the curated repositories and
-download their spec files into `./data`:
+The default call reads `spec_files.parquet` from the local cache when present;
+otherwise it downloads that parquet from Hugging Face into
+`notebooks/data/data/`. `sample_size` limits the returned DataFrame but does not
+reduce the first download or the memory needed to read the full metadata
+parquet. `data_dir=...` changes the cache root.
+
+Use `curated_only=True` to load the curated repositories. The filtered metadata
+is saved as `curated_spec_files.parquet` and reused on later calls, so the full
+metadata parquet is not scanned again. Raw Markdown is downloaded to the cache
+root and reused; `sample_size` limits the selected rows/files. With no
+`sample_size`, all curated rows are selected. To load curated metadata without
+downloading Markdown, set `download_raw_specs=False` and pass the metadata to
+`download_random_spec_sample` or `download_spec_files`:
 
 ```python
-from specmine.data import load_data
+from specmine.data import download_random_spec_sample, load_data
 
-df = load_data(curated_only=True, sample_size=500, seed=0)
+metadata = load_data(
+    curated_only=True,
+    data_dir="notebooks/data",
+    download_raw_specs=False,
+)
+sample = download_random_spec_sample(
+    metadata,
+    sample_size=3,
+    seed=0,
+    data_dir="notebooks/data",
+)
 ```
 
-Use `notebooks/data_init.ipynb` to work from the local metadata and
-content-feature parquet files in `notebooks/data/`. With
-`LOCAL_DATA_ONLY = True`, the notebook never downloads parquet or raw spec
-files and samples up to `SPEC_SAMPLE_SIZE` (300 by default) from raw specs
-already cached there. If fewer raw specs are cached, it uses the available
-files; if a parquet file is missing, it raises an error. Set
-`LOCAL_DATA_ONLY = False` to allow missing parquet files and raw specs to be
-downloaded. The notebook chooses an unreviewed repository from the sample to
-display its Markdown, exact feature row, and metadata. Repeated spec IDs and
-repositories are excluded; failed downloads are replaced with candidates from
-other repositories when downloads are enabled. Change `SPEC_SAMPLE_SIZE` or
-`SEED` near the top of the notebook. The sample manifest is saved as
-`notebooks/data/spec_sample.csv`.
+`notebooks/data_init.ipynb` uses `CURATED_ONLY = True` by default to select the
+curated repositories and samples up to `SPEC_SAMPLE_SIZE` (3 by default), with
+at most one spec per repository. Set it to `False` to sample from the full
+metadata table. Parquets and Markdown files are cache-first: existing files are
+reused and missing files are downloaded into `notebooks/data/`. The notebook
+chooses an unreviewed repository from the sample and displays its Markdown,
+exact feature row, and metadata. Repeated spec IDs and repositories are
+excluded; failed downloads are replaced with candidates from other
+repositories. The first run and each newly selected, uncached spec may require
+network access; rerunning the same seeded sample reuses its local files. Change
+`SPEC_SAMPLE_SIZE` or `SEED` near the top of the notebook. The sample manifest
+is saved as `notebooks/data/spec_sample.csv`.
 
-The Python API can also be told to use the local cache without a network
-fallback:
+Normal `load_data` and `load_feature_data` calls also use the local cache first
+and download only a missing required parquet from Hugging Face. For explicitly
+strict offline reads, use `local_data_only=True`:
 
 ```python
 from specmine.data import load_data, load_feature_data
@@ -68,19 +87,19 @@ metadata = load_data(local_data_only=True)
 features = load_feature_data(local_data_only=True)
 ```
 
-By default, local-only loading looks under this repository's
-`notebooks/data/data/`; pass `data_dir=...` to use a different cache
-directory. If a parquet file is missing, local-only mode raises
-`FileNotFoundError` and never falls back to the network. The default remains
-`local_data_only=False`, preserving remote loading. Local-only mode cannot be
-combined with `curated_only=True`, which downloads raw spec files.
+Local-only loading looks under this repository's `notebooks/data/data/`; pass
+`data_dir=...` to use a different cache root. If a parquet file is missing,
+local-only mode raises `FileNotFoundError` and never falls back to the network.
+`curated_only=True` is cache-first rather than a strict no-network option: it
+may fetch missing curated metadata on its first run, then reuse the local
+subset. `local_data_only=True` cannot be combined with `curated_only=True`.
 
-Use `notebooks/data_init.ipynb` for data initialization, sampling, and review.
+Use `notebooks/data_init.ipynb` for cache initialization, sampling, and review.
 Use `notebooks/show_specs.ipynb` to look up IDs and inspect all repository/spec
-properties, matched features, and Markdown. Missing parquet files and requested
-spec Markdown are downloaded into the data directory. Markdown is shown as
-escaped text so remote images and embedded HTML are not rendered. The curated
-downloader accepts only HTTPS URLs on `github.com` and
+properties, matched features, and Markdown. Only missing parquet files and
+requested Markdown are downloaded into the data directory. Markdown is shown
+as escaped text so remote images and embedded HTML are not rendered. The raw
+spec downloader accepts only HTTPS URLs on `github.com` and
 `raw.githubusercontent.com` and validates every redirect before following it.
 Record one reviewed row in `examples/real_labels.csv` using
 `repo_id,spec_id,label,confidence`. `repo_id` identifies the repository for
@@ -112,16 +131,16 @@ write, so concurrent runs do not overwrite one another.
 ## Notebook Quick Start
 
 Open notebooks from the repository and run their code cells from top to
-bottom. The data notebooks need an internet connection to fetch the parquet
-files and GitHub spec Markdown; once cached, the labeling, prediction, and
-results workflows read the parquet files locally.
+bottom. All notebooks use the same cache-first loaders. An internet connection
+is needed only when a required parquet or selected Markdown file is missing;
+cached files are reused from `notebooks/data`.
 
 | Notebook | Purpose and how to use it |
 | --- | --- |
-| `notebooks/data_init.ipynb` | Initializes or reuses the metadata and feature parquet cache, downloads/reuses a random sample of one spec per repository, writes `notebooks/data/spec_sample.csv`, and displays one unreviewed repository from that sample. Set `SPEC_SAMPLE_SIZE` and `SEED` near the top; the default sample size is 300 and `SEED = None` chooses a new sample each run. |
-| `notebooks/show_specs.ipynb` | Looks up all distinct specs for one or more `REPO_IDS`, or specific `SPEC_IDS` (list or comma-separated string). It downloads missing parquet or Markdown files, then displays all repository/spec properties, matched features, and Markdown. |
+| `notebooks/data_init.ipynb` | Reuses or fills the cache, samples up to three specs from distinct repositories, writes `notebooks/data/spec_sample.csv`, and displays one unreviewed repository with its Markdown, properties, and features. Set `CURATED_ONLY`, `SPEC_SAMPLE_SIZE`, and `SEED` near the top. |
+| `notebooks/show_specs.ipynb` | Looks up all distinct specs for one or more `REPO_IDS`, or specific `SPEC_IDS` (list or comma-separated string). It reuses cached files and downloads only missing metadata, features, or requested Markdown. |
 | `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model using all nonblank labels, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, and `PREDICTION_SAMPLE_SIZE` near the top to change the inputs. It saves models under `models/` and a uniquely named prediction CSV under `notebooks/`. |
-| `notebooks/results.ipynb` | Builds the dataset and repository-disjoint split summaries, fits fresh confidence-weighted baselines, evaluates them, and saves figures under `notebooks/figures/`. By default it uses the fake-label fixture and reports agreement with those supplied labels, not verified authorship accuracy. |
+| `notebooks/results.ipynb` | Loads metadata and features from the same cache-first flow, builds repository-disjoint summaries, fits fresh confidence-weighted baselines, evaluates them, and saves figures under `notebooks/figures/`. By default it uses the fake-label fixture and reports agreement with those supplied labels, not verified authorship accuracy. |
 
 For labeling, ambiguous evidence should be recorded with blank
 `label` and `confidence` fields. Nonblank labels must be `0` or `1`, and their
@@ -146,7 +165,7 @@ FinalProject-CS440/
 │   ├── show_specs.ipynb         # Inspect specs by repo or spec ID
 │   ├── predict.ipynb            # Train, evaluate, and predict
 │   ├── results.ipynb            # Evaluation summaries and plots
-│   ├── data/                    # Local parquet cache, Markdown, and manifest
+│   ├── data/                    # Parquet/curated metadata cache, Markdown, manifest
 │   └── figures/                 # Generated result plots
 ├── src/specmine/
 │   ├── data.py                  # Dataset loading, caching, and downloads
@@ -164,9 +183,11 @@ FinalProject-CS440/
 └── LICENSE-DATA
 ```
 
-The parquet cache, downloaded Markdown, sample manifest, and generated plots
-are local workflow data. Run an initializer again to refresh or create the
-cache; other notebooks may create prediction CSVs and model files when run.
+The parquet cache, curated metadata subset, downloaded Markdown, sample
+manifest, and generated plots are local workflow data. Cache-first loaders
+reuse existing files and download only missing required files. Remove a cached
+file when you intentionally want to fetch it again; other notebooks may create
+prediction CSVs and model files when run.
 
 ## Training Baselines
 
@@ -239,7 +260,7 @@ Without `--labels-csv`, the command emits predictions only and does not compute
 supervised metrics. `--split` accepts `train`, `test`, or `all`; use
 `--make-val --split val` to deterministically carve a validation split out of
 train. CSV metadata is escaped when it begins with a spreadsheet formula
-prefix. Curated downloads use `--data-dir` (default `./data`).
+prefix. Curated downloads use `--data-dir` (default `notebooks/data`).
 
 Run the local tests with:
 

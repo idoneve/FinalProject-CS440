@@ -23,12 +23,13 @@ PARQUET_URL = "hf://datasets/ShyAgarwal/specmine/data/spec_files.parquet"
 FEATURES_PARQUET_URL = (
     "hf://datasets/ShyAgarwal/specmine/data/spec_content_features.parquet"
 )
-DATA_DIR = Path("data")
 DEFAULT_LOCAL_DATA_DIR = (
     Path(__file__).resolve().parents[2] / "notebooks" / "data"
 )
+DATA_DIR = DEFAULT_LOCAL_DATA_DIR
 DATASET_REPO_ID = "ShyAgarwal/specmine"
 PARQUET_FILENAMES = ("spec_files.parquet", "spec_content_features.parquet")
+CURATED_METADATA_FILENAME = "curated_spec_files.parquet"
 _BLOB_RE = re.compile(
     r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/blob/(?P<rest>[^?#]+)$",
     re.IGNORECASE,
@@ -336,76 +337,70 @@ def download_random_spec_sample(
     return result.reset_index(drop=True)
 
 
-def _curated_local_dataframe(
-    sample_size=None, seed=None, data_dir=None
-) -> pd.DataFrame:
-    """
-    Download curated spec files to ``data_dir`` (default ``./data``) and
-    return the same schema as the full parquet, plus a `local_path` column.
-    Rows whose file couldn't be downloaded are dropped.
-    """
-    data_dir = DATA_DIR if data_dir is None else Path(data_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
+def _curated_metadata_path(data_dir: Path) -> Path:
+    """Resolve the persisted curated metadata subset under the parquet cache."""
+    return data_dir / "data" / CURATED_METADATA_FILENAME
+
+
+def _write_parquet_cache(df: pd.DataFrame, path: Path) -> None:
+    """Publish a parquet cache file atomically so interrupted writes are ignored."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f".{path.stem}.",
+            suffix=path.suffix,
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+        df.to_parquet(temp_path, engine="fastparquet", index=False)
+        os.replace(temp_path, path)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _load_curated_metadata(data_dir: Path) -> pd.DataFrame:
+    """Load cached curated metadata, creating it from the full parquet once."""
+    cached_path = _curated_metadata_path(data_dir)
+    if cached_path.is_file():
+        return pd.read_parquet(cached_path, engine="fastparquet")
+
     wanted = set(_fetch_sample_repo_names())
     print(f"Curated repo list: {len(wanted)} unique repos")
-    stop = threading.Event()
-    t = threading.Thread(
-        target=loading_animation,
-        args=(stop, "Loading SpecMine parquet for URL lookup..."),
+    full = _read_dataset_parquet(PARQUET_URL, data_dir=data_dir)
+    if "repo_name" not in full:
+        raise KeyError("SpecMine metadata is missing the repo_name column")
+    curated = full.loc[full["repo_name"].isin(wanted)].copy()
+    _write_parquet_cache(curated, cached_path)
+    print(
+        f"Cached {len(curated)} curated spec rows across "
+        f"{curated['repo_name'].nunique()} repos at {cached_path}"
     )
-    t.daemon = True
-    t.start()
-    try:
-        full = pd.read_parquet(PARQUET_URL, engine="fastparquet")
-    finally:
-        stop.set()
-        t.join()
-    df = full[full["repo_name"].isin(wanted)].copy()
-    print(f"Matched {len(df)} spec rows across {df['repo_name'].nunique()} repos")
-    if df.empty:
-        return df.assign(local_path=pd.Series(dtype="string"))
-    if sample_size is not None and sample_size < len(df):
-        df = df.sample(n=sample_size, random_state=seed).reset_index(drop=True)
-    local_paths = []
-    total = len(df)
-    failed = 0
-    for i, (_, row) in enumerate(df.iterrows(), 1):
-        repo = row["repo_name"]
-        blob_url = row["file_url"]
-        file_path = row.get("file_path", "")
-        file_path = "" if pd.isna(file_path) else str(file_path)
-        sha = row.get("file_sha", "")
-        sha = "" if pd.isna(sha) else str(sha)
-        if not sha:
-            sha = row.get("file_last_commit_sha", "")
-            sha = "" if pd.isna(sha) else str(sha)
-        if not isinstance(blob_url, str):
-            local_paths.append(None)
-            continue
-        try:
-            raw_url = _blob_to_raw(blob_url)
-            fname = _safe_local_filename(repo, file_path, sha)
-            dest = data_dir / fname
-            sys.stdout.write(f"\r  [{i}/{total}] {repo} -> {fname[:70]}")
-            sys.stdout.flush()
-            _download_file(raw_url, dest)
-            local_paths.append(str(dest))
-        except Exception as e:
-            local_paths.append(None)
-            failed += 1
-            if failed <= 5:
-                sys.stdout.write("\n")
-                print(f"  ! {repo} :: {type(e).__name__}: {e}")
-    sys.stdout.write("\r" + " " * 140 + "\r")
-    df["local_path"] = local_paths
-    before = len(df)
-    df = df[df["local_path"].notna()].reset_index(drop=True)
-    print(f"Downloaded {len(df)}/{before} files (kept only successful rows)")
-    return df
+    return curated
+
+
+def _curated_local_dataframe(
+    sample_size=None,
+    seed=None,
+    data_dir=None,
+    download_raw_specs=True,
+) -> pd.DataFrame:
+    """Load curated metadata and optionally download its raw Markdown files."""
+    data_dir = DATA_DIR if data_dir is None else Path(data_dir)
+    curated = _load_curated_metadata(data_dir)
+    if sample_size is not None and sample_size < len(curated):
+        curated = curated.sample(n=sample_size, random_state=seed)
+    curated = curated.reset_index(drop=True)
+    if not download_raw_specs:
+        return curated
+    return download_spec_files(curated, data_dir=data_dir)
 
 
 def _local_parquet_path(url: str, data_dir=None) -> Path:
-    """Resolve a parquet file downloaded by the dataset initializer notebook."""
+    """Resolve a cached SpecMine parquet file."""
     data_dir = DEFAULT_LOCAL_DATA_DIR if data_dir is None else Path(data_dir)
     filename = url.rsplit("/", 1)[-1]
     candidates = (data_dir / "data" / filename, data_dir / filename)
@@ -415,41 +410,55 @@ def _local_parquet_path(url: str, data_dir=None) -> Path:
     expected = data_dir / "data" / filename
     raise FileNotFoundError(
         f"Local SpecMine parquet not found: {expected}. "
-        "Run notebooks/data_init.ipynb first, or omit local_data_only "
-        "to load from Hugging Face."
+        "Run notebooks/data_init.ipynb or a cache-first loader with network "
+        "access to populate the cache before using local_data_only."
     )
+
+
+def _download_dataset_parquet(filename: str, data_dir: Path) -> Path:
+    """Download one missing parquet from the Hugging Face dataset repository."""
+    from huggingface_hub import hf_hub_download
+
+    path = Path(
+        hf_hub_download(
+            repo_id=DATASET_REPO_ID,
+            repo_type="dataset",
+            filename=f"data/{filename}",
+            local_dir=str(data_dir),
+        )
+    )
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Hugging Face did not create the expected parquet file: {path}"
+        )
+    return path
 
 
 def download_dataset_parquets(data_dir=None) -> dict[str, Path]:
-    """Download the metadata and feature parquet files into a local directory."""
-    from huggingface_hub import hf_hub_download
-
+    """Find or download the metadata and feature parquet files in ``data_dir``."""
     data_dir = DEFAULT_LOCAL_DATA_DIR if data_dir is None else Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    downloaded = {}
+    resolved = {}
     for filename in PARQUET_FILENAMES:
-        path = Path(
-            hf_hub_download(
-                repo_id=DATASET_REPO_ID,
-                repo_type="dataset",
-                filename=f"data/{filename}",
-                local_dir=str(data_dir),
-            )
-        )
-        if not path.is_file():
-            raise FileNotFoundError(
-                f"Hugging Face did not create the expected parquet file: {path}"
-            )
-        downloaded[filename] = path
-    return downloaded
+        url = f"hf://datasets/{DATASET_REPO_ID}/data/{filename}"
+        try:
+            path = _local_parquet_path(url, data_dir=data_dir)
+        except FileNotFoundError:
+            path = _download_dataset_parquet(filename, data_dir)
+        resolved[filename] = path
+    return resolved
 
 
 def _read_dataset_parquet(url: str, *, local_data_only=False, data_dir=None):
-    source = (
-        _local_parquet_path(url, data_dir=data_dir)
-        if local_data_only
-        else url
-    )
+    try:
+        source = _local_parquet_path(url, data_dir=data_dir)
+    except FileNotFoundError:
+        if local_data_only:
+            raise
+        filename = url.rsplit("/", 1)[-1]
+        data_dir = DEFAULT_LOCAL_DATA_DIR if data_dir is None else Path(data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        source = _download_dataset_parquet(filename, data_dir)
     return pd.read_parquet(source, engine="fastparquet")
 
 
@@ -459,6 +468,7 @@ def _load_raw(
     seed=None,
     data_dir=None,
     local_data_only=False,
+    download_raw_specs=True,
 ):
     """Load a single SpecMine DataFrame (no splitting)."""
     if local_data_only and curated_only:
@@ -469,7 +479,10 @@ def _load_raw(
     if curated_only:
         try:
             return _curated_local_dataframe(
-                sample_size=sample_size, seed=seed, data_dir=data_dir
+                sample_size=sample_size,
+                seed=seed,
+                data_dir=data_dir,
+                download_raw_specs=download_raw_specs,
             )
         except Exception as e:
             print(f"\nError loading curated dataset: {e}")
@@ -490,13 +503,13 @@ def _load_raw(
         target=loading_animation,
         args=(
             stop,
-            "Attempting to connect to Hugging Face and load SpecMine dataset...",
+            "Loading SpecMine metadata from the local cache or Hugging Face...",
         ),
     )
     spinner_thread.daemon = True
     spinner_thread.start()
     try:
-        df = _read_dataset_parquet(PARQUET_URL)
+        df = _read_dataset_parquet(PARQUET_URL, data_dir=data_dir)
     except Exception as e:
         print(f"\nError loading dataset: {e}")
         print("Check requirements.txt for needed packages")
@@ -531,7 +544,9 @@ def load_feature_data(
         file_url_sha16: Optional iterable of feature join keys or a DataFrame
             containing ``file_url_sha16``. When supplied, only matching feature
             rows are returned.
-        local_data_only: Read the cached parquet without contacting Hugging Face.
+        local_data_only: Require a cached parquet without contacting Hugging
+            Face. By default, an existing local parquet is reused and a missing
+            one is downloaded into the cache.
         data_dir: Cache directory; defaults to ``notebooks/data`` in this repo.
     """
     cache_dir = (
@@ -657,20 +672,24 @@ def load_data(
     return_splits=False,
     data_dir=None,
     local_data_only=False,
+    download_raw_specs=True,
 ):
     """
     Load SpecMine data.
     - curated_only=False (default): return the full parquet DataFrame.
-    - curated_only=True: download the curated repo spec files to ./data and return the SAME schema as the full parquet, plus a `local_path` column.
+    - curated_only=True: cache the filtered curated metadata and, by default,
+      download the selected raw spec files into the cache with a `local_path`
+      column. The filtered metadata is reused on later calls.
+    - download_raw_specs=False: return curated metadata without downloading
+      Markdown files; use this when selecting a smaller sample to download.
     - sample_size=N: random sample of N rows (both modes). The full remote
-      parquet is still downloaded and materialized before sampling.
+      metadata parquet is cached before sampling when the cache is missing.
     - seed: random seed for sampling (both modes).
-    - data_dir: local directory for curated downloads or local parquet cache.
-      For curated downloads, defaults to ./data; for local parquet loading,
-      defaults to notebooks/data.
-    - local_data_only: read the local metadata parquet only, without falling
-      back to the network. The cache defaults to notebooks/data; files may be
-      nested under data/ as created by data_init.ipynb.
+    - data_dir: cache root for parquet and raw spec files; defaults to
+      notebooks/data in this repository.
+    - local_data_only: require the local metadata parquet and never fall back
+      to the network. By default, missing required parquets are downloaded from
+      Hugging Face and saved in the cache.
     - split=True (or return_splits=True): return a leak-safe (train, test) tuple instead of one frame. No repo_name and no file_content_sha appears on both sides. `test_size` is the approx. fraction of repos assigned to test.
     """
     df = _load_raw(
@@ -679,6 +698,7 @@ def load_data(
         seed=seed,
         data_dir=data_dir,
         local_data_only=local_data_only,
+        download_raw_specs=download_raw_specs,
     )
     if df is None:
         return None
