@@ -326,6 +326,69 @@ class TestDownloadSpecFiles:
         assert all(Path(path).is_file() for path in result["local_path"])
 
 
+class TestLoadSpecMarkdown:
+    def test_downloads_and_reuses_complete_markdown(
+        self, fake_parquet_df, fake_raw_response, tmp_path
+    ):
+        metadata = fake_parquet_df.iloc[:2].copy()
+        metadata["file_url_sha16"] = ["first", "second"]
+
+        first = sm.load_spec_markdown(metadata, data_dir=tmp_path)
+        second = sm.load_spec_markdown(metadata, data_dir=tmp_path)
+
+        assert first["file_url_sha16"].tolist() == ["first", "second"]
+        assert first[sm.MARKDOWN_COLUMN].tolist() == ["# spec\nhello\n"] * 2
+        pd.testing.assert_frame_equal(first, second)
+        assert len(fake_raw_response) == 2
+
+    def test_reports_failed_downloads_and_keeps_available_specs(
+        self, fake_parquet_df, monkeypatch, tmp_path, caplog, capsys
+    ):
+        metadata = fake_parquet_df.iloc[:2].copy()
+        metadata["file_url_sha16"] = ["available", "unavailable"]
+
+        def fake_download(url, dest):
+            if url.endswith("/plan.md"):
+                raise OSError("file unavailable")
+            dest.write_text("# available\n", encoding="utf-8")
+            return True
+
+        monkeypatch.setattr(sm, "_download_file", fake_download)
+        result = sm.load_spec_markdown(metadata, data_dir=tmp_path)
+
+        assert result["file_url_sha16"].tolist() == ["available"]
+        assert "Markdown unavailable for 1 spec(s): unavailable" in caplog.text
+        assert "Skipped 1 unavailable files" in capsys.readouterr().out
+
+    def test_local_only_skips_missing_and_invalid_files_without_network(
+        self, fake_parquet_df, monkeypatch, tmp_path, caplog
+    ):
+        metadata = fake_parquet_df.iloc[:3].copy()
+        metadata["file_url_sha16"] = ["cached", "invalid", "missing"]
+        sm._spec_local_path(metadata.iloc[0], tmp_path).write_text(
+            "# cached\n", encoding="utf-8"
+        )
+        sm._spec_local_path(metadata.iloc[1], tmp_path).write_bytes(b"\xff")
+
+        def unexpected_request(*args, **kwargs):
+            raise AssertionError("local-only Markdown loading must not use the network")
+
+        monkeypatch.setattr(sm.requests, "get", unexpected_request)
+        result = sm.load_spec_markdown(metadata, local_data_only=True, data_dir=tmp_path)
+
+        assert result.to_dict("records") == [
+            {"file_url_sha16": "cached", sm.MARKDOWN_COLUMN: "# cached\n"}
+        ]
+        assert "Cannot read Markdown for spec invalid" in caplog.text
+        assert "invalid, missing" in caplog.text
+
+    def test_rejects_duplicate_spec_ids(self, fake_parquet_df, tmp_path):
+        metadata = fake_parquet_df.iloc[:2].copy()
+        metadata["file_url_sha16"] = ["same", "same"]
+        with pytest.raises(ValueError, match="at most one row per spec ID"):
+            sm.load_spec_markdown(metadata, local_data_only=True, data_dir=tmp_path)
+
+
 class TestDownloadRandomSpecSample:
     @pytest.fixture
     def metadata(self):

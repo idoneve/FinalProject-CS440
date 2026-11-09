@@ -1,4 +1,4 @@
-"""Train scikit-learn baselines for SpecMine's engineered features.
+"""Train scikit-learn baselines for SpecMine's content features and Markdown.
 
 Training requires a labels CSV keyed by SpecMine's ``file_url_sha16`` IDs.
 Scores measure agreement with the supplied labels; they are evidence of
@@ -18,14 +18,23 @@ import joblib
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
+from sklearn.compose import ColumnTransformer
+from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupShuffleSplit
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from specmine.data import load_data, load_feature_data
+from specmine.data import (
+    MARKDOWN_COLUMN,
+    load_data,
+    load_feature_data,
+    load_spec_markdown,
+)
 from specmine.evaluate import evaluate_model
 from specmine.features import build_features
 from specmine.labels import (
@@ -39,6 +48,14 @@ LOGGER = logging.getLogger(__name__)
 ID_COLUMN = "file_url_sha16"
 REPOSITORY_COLUMN = "repo_name"
 DEFAULT_MODELS = ("logistic_regression", "random_forest")
+TEXT_MODELS = ("naive_bayes", "markdown_plus_feature")
+AVAILABLE_MODELS = (
+    *DEFAULT_MODELS,
+    "naive_bayes",
+    "uniform_guess",
+    "markdown_plus_feature",
+)
+DEFAULT_TEXT_FEATURE = "n_words"
 
 
 def prepare_training_data(
@@ -48,6 +65,7 @@ def prepare_training_data(
     *,
     sample_size: int | None = None,
     seed: int = 42,
+    include_markdown: bool = False,
     local_data_only: bool = False,
     data_dir: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, pd.Series, pd.Series]:
@@ -57,7 +75,8 @@ def prepare_training_data(
     ``spec_content_features``. Otherwise, matching rows are loaded using the
     labeled IDs in ``data``. Blank labels are excluded, allowing ambiguous
     examples to be left unlabeled. Confidence scores are returned separately
-    from model features.
+    from model features. When ``include_markdown`` is true, unavailable specs
+    are reported and excluded from every returned series.
     """
     if data is None or data.empty:
         raise ValueError("Training data must be a non-empty DataFrame")
@@ -176,6 +195,37 @@ def prepare_training_data(
     if combined.empty:
         raise ValueError("No labeled specs matched the precomputed feature data")
 
+    if include_markdown:
+        selected_ids = set(combined[ID_COLUMN].astype("string"))
+        metadata_rows = data.loc[
+            data[ID_COLUMN].astype("string").isin(selected_ids)
+        ].copy()
+        metadata_rows[ID_COLUMN] = metadata_rows[ID_COLUMN].astype("string")
+        source_columns = [
+            column
+            for column in (
+                ID_COLUMN,
+                REPOSITORY_COLUMN,
+                "file_url",
+                "file_path",
+                "file_sha",
+                "file_last_commit_sha",
+            )
+            if column in metadata_rows
+        ]
+        metadata_rows = metadata_rows.drop_duplicates(subset=source_columns)
+        markdown = load_spec_markdown(
+            metadata_rows, local_data_only=local_data_only, data_dir=data_dir
+        )
+        combined = combined.merge(
+            markdown, on=ID_COLUMN, how="inner", validate="one_to_one"
+        )
+        if combined.empty:
+            raise ValueError(
+                "No labeled specs have readable Markdown; populate the cache "
+                "or allow downloads before training a text model"
+            )
+
     y = combined[LABEL_COLUMN].astype("int8").reset_index(drop=True)
     confidence_scores = combined[CONFIDENCE_COLUMN].astype(float).reset_index(
         drop=True
@@ -193,21 +243,31 @@ def prepare_training_data(
     return features, y, groups, confidence_scores
 
 
-def _build_estimators(seed: int) -> dict[str, Pipeline]:
+def _build_estimators(
+    seed: int, text_feature: str = DEFAULT_TEXT_FEATURE
+) -> dict[str, Pipeline]:
     """Return the built-in estimator pipelines; extend here to add baselines."""
+    def text_vectorizer() -> TfidfVectorizer:
+        return TfidfVectorizer(
+            analyzer="char",
+            ngram_range=(3, 5),
+            lowercase=False,
+            max_features=50000,
+        )
+
+    def logistic_classifier() -> LogisticRegression:
+        return LogisticRegression(
+            max_iter=1000,
+            class_weight="balanced",
+            random_state=seed,
+        )
+
     return {
         "logistic_regression": Pipeline(
             steps=[
                 ("imputer", SimpleImputer(strategy="median")),
                 ("scaler", StandardScaler()),
-                (
-                    "classifier",
-                    LogisticRegression(
-                        max_iter=1000,
-                        class_weight="balanced",
-                        random_state=seed,
-                    ),
-                ),
+                ("classifier", logistic_classifier()),
             ]
         ),
         "random_forest": Pipeline(
@@ -222,6 +282,50 @@ def _build_estimators(seed: int) -> dict[str, Pipeline]:
                         n_jobs=-1,
                     ),
                 ),
+            ]
+        ),
+        "naive_bayes": Pipeline(
+            steps=[
+                (
+                    "preprocessor",
+                    ColumnTransformer(
+                        [("markdown", text_vectorizer(), MARKDOWN_COLUMN)],
+                        sparse_threshold=1.0,
+                    ),
+                ),
+                ("classifier", MultinomialNB()),
+            ]
+        ),
+        "uniform_guess": Pipeline(
+            steps=[
+                (
+                    "classifier",
+                    DummyClassifier(strategy="uniform", random_state=seed),
+                )
+            ]
+        ),
+        "markdown_plus_feature": Pipeline(
+            steps=[
+                (
+                    "preprocessor",
+                    ColumnTransformer(
+                        [
+                            ("markdown", text_vectorizer(), MARKDOWN_COLUMN),
+                            (
+                                "numeric",
+                                Pipeline(
+                                    [
+                                        ("imputer", SimpleImputer(strategy="median")),
+                                        ("scaler", StandardScaler()),
+                                    ]
+                                ),
+                                [text_feature],
+                            ),
+                        ],
+                        sparse_threshold=1.0,
+                    ),
+                ),
+                ("classifier", logistic_classifier()),
             ]
         ),
     }
@@ -242,6 +346,57 @@ def _numeric_features(features: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     return numeric, columns
 
 
+def select_model_inputs(
+    features: pd.DataFrame, feature_columns: Sequence[str]
+) -> pd.DataFrame:
+    """Select and normalize the exact input columns for a built-in model."""
+    columns = list(feature_columns)
+    if len(set(columns)) != len(columns):
+        raise ValueError("Model feature columns must not contain duplicates")
+    missing = [column for column in columns if column not in features]
+    if missing:
+        raise ValueError(f"Data is missing model feature columns: {missing}")
+    selected = features.loc[:, columns].copy()
+    numeric_columns = [column for column in columns if column != MARKDOWN_COLUMN]
+    invalid_numeric = [
+        column
+        for column in numeric_columns
+        if not pd.api.types.is_numeric_dtype(selected[column])
+    ]
+    if invalid_numeric:
+        raise ValueError(f"Model feature columns must be numeric: {invalid_numeric}")
+    if numeric_columns:
+        selected[numeric_columns] = (
+            selected[numeric_columns]
+            .apply(pd.to_numeric, errors="coerce")
+            .replace([np.inf, -np.inf], np.nan)
+            .astype(float)
+        )
+    if MARKDOWN_COLUMN in columns:
+        valid = selected[MARKDOWN_COLUMN].map(
+            lambda value: isinstance(value, str) and bool(value.strip())
+        )
+        if not valid.all():
+            raise ValueError("Every text-model row must contain readable Markdown")
+    return selected
+
+
+def fit_baseline_model(
+    model: Pipeline,
+    features: pd.DataFrame,
+    labels: Sequence[Any] | pd.Series,
+    *,
+    sample_weight: np.ndarray,
+) -> Pipeline:
+    """Fit a built-in model, keeping uniform guesses independent of labels."""
+    if len(features) != len(labels) or len(sample_weight) != len(labels):
+        raise ValueError("features, labels, and sample_weight must align")
+    classifier = model.named_steps["classifier"]
+    if isinstance(classifier, DummyClassifier) and classifier.strategy == "uniform":
+        return model.fit(pd.DataFrame(index=range(2)), np.array([0, 1], dtype="int8"))
+    return model.fit(features, labels, classifier__sample_weight=sample_weight)
+
+
 def repository_disjoint_split(
     features: pd.DataFrame,
     labels: Sequence[Any] | pd.Series,
@@ -260,7 +415,7 @@ def repository_disjoint_split(
     if repository_groups is None:
         raise ValueError("repository_groups are required for leakage-safe splitting")
 
-    x, _ = _numeric_features(features)
+    x = features
     y = pd.Series(labels).reset_index(drop=True)
     groups = pd.Series(repository_groups).reset_index(drop=True)
     if len(y) != len(x) or len(groups) != len(x):
@@ -299,6 +454,7 @@ def train_models(
     *,
     confidence_scores: Sequence[Any] | pd.Series | None = None,
     model_names: Sequence[str] = DEFAULT_MODELS,
+    text_feature: str = DEFAULT_TEXT_FEATURE,
     test_size: float = 0.2,
     seed: int = 42,
     model_dir: str | Path | None = None,
@@ -307,7 +463,8 @@ def train_models(
 
     ``labels`` must be supplied from a labels CSV or equivalent labeling
     process. ``repository_groups`` identifies source repositories so no
-    repository can appear in both partitions.
+    repository can appear in both partitions. The Markdown-plus-feature model
+    uses exactly the numeric column named by ``text_feature``.
     """
     if features is None or not isinstance(features, pd.DataFrame) or features.empty:
         raise ValueError("features must be a non-empty pandas DataFrame")
@@ -349,51 +506,78 @@ def train_models(
         if confidence.isna().any() or not confidence.between(0, 100).all():
             raise ValueError("confidence_scores must be numeric values from 0 to 100")
     selected_names = tuple(model_names)
-    estimators = _build_estimators(seed)
-    unknown = sorted(set(selected_names) - set(estimators))
+    unknown = sorted(set(selected_names) - set(AVAILABLE_MODELS))
     if unknown:
         raise ValueError(
-            f"Unknown model name(s) {unknown}; choose from {sorted(estimators)}"
+            f"Unknown model name(s) {unknown}; choose from {sorted(AVAILABLE_MODELS)}"
         )
     if not selected_names:
         raise ValueError("Select at least one model to train")
 
-    x, feature_columns = _numeric_features(features)
+    numeric_models = {"logistic_regression", "random_forest", "markdown_plus_feature"}
+    if numeric_models.intersection(selected_names):
+        _, numeric_columns = _numeric_features(features)
+    else:
+        numeric_columns = []
+    if "markdown_plus_feature" in selected_names:
+        if not isinstance(text_feature, str) or text_feature not in numeric_columns:
+            raise ValueError(
+                f"text_feature must name an available numeric model column; "
+                f"got {text_feature!r}"
+            )
+        if text_feature in {LABEL_COLUMN, CONFIDENCE_COLUMN, REPOSITORY_COLUMN}:
+            raise ValueError("text_feature must not be a label or metadata column")
+    if set(TEXT_MODELS).intersection(selected_names) and MARKDOWN_COLUMN not in features:
+        raise ValueError(
+            f"Text models require {MARKDOWN_COLUMN!r}; call "
+            "prepare_training_data(include_markdown=True) or supply Markdown"
+        )
+
+    model_columns = {
+        "logistic_regression": numeric_columns,
+        "random_forest": numeric_columns,
+        "naive_bayes": [MARKDOWN_COLUMN],
+        "uniform_guess": [],
+        "markdown_plus_feature": [MARKDOWN_COLUMN, text_feature],
+    }
+    estimators = _build_estimators(seed, text_feature)
     train_indices, test_indices = repository_disjoint_split(
-        x,
+        features,
         y,
         groups,
         test_size=test_size,
         seed=seed,
     )
     train_labels = y.iloc[train_indices]
-    if train_labels.nunique() < 2:
+    has_trainable_model = any(name != "uniform_guess" for name in selected_names)
+    if has_trainable_model and train_labels.nunique() < 2:
         raise ValueError(
             "The repository-disjoint training split contains only one label class; "
             "provide labels for both classes across more repositories or choose "
             "a different seed/test_size"
         )
     train_weights = confidence.iloc[train_indices].to_numpy(dtype=float) / 100
-    if np.unique(train_labels.to_numpy()[train_weights > 0]).size < 2:
+    if (
+        has_trainable_model
+        and np.unique(train_labels.to_numpy()[train_weights > 0]).size < 2
+    ):
         raise ValueError(
             "The confidence-weighted training split must retain both label classes "
             "with positive weight"
         )
 
-    x_train = x.iloc[train_indices]
-    x_test = x.iloc[test_indices]
     y_train = train_labels
     y_test = y.iloc[test_indices]
     train_groups = groups.iloc[train_indices]
     test_groups = groups.iloc[test_indices]
     LOGGER.info(
         "Split: %d training specs/%d repos, %d holdout specs/%d repos; "
-        "features: %d; labels: train=%s holdout=%s",
+        "numeric features: %d; labels: train=%s holdout=%s",
         len(train_indices),
         train_groups.nunique(),
         len(test_indices),
         test_groups.nunique(),
-        len(feature_columns),
+        len(numeric_columns),
         y_train.value_counts().sort_index().to_dict(),
         y_test.value_counts().sort_index().to_dict(),
     )
@@ -409,11 +593,21 @@ def train_models(
     results: dict[str, dict[str, Any]] = {}
     for name in selected_names:
         model = estimators[name]
+        feature_columns = model_columns[name]
+        x = select_model_inputs(features, feature_columns)
+        x_train = x.iloc[train_indices]
+        x_test = x.iloc[test_indices]
+        if name == "markdown_plus_feature" and not x_train[text_feature].notna().any():
+            raise ValueError(
+                f"text_feature {text_feature!r} has no usable values "
+                "in the training split"
+            )
         LOGGER.info("Training %s", name)
-        model.fit(
+        fit_baseline_model(
+            model,
             x_train,
             y_train,
-            classifier__sample_weight=train_weights,
+            sample_weight=train_weights,
         )
         evaluation_frame = x_test.copy()
         if ID_COLUMN in features.columns:
@@ -473,14 +667,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--local-data-only",
         action="store_true",
-        help="Read metadata and feature parquet files from the local cache only",
+        help="Read metadata, features, and Markdown from the local cache only",
     )
     parser.add_argument("--model-dir", type=Path)
     parser.add_argument(
         "--models",
         nargs="+",
-        choices=DEFAULT_MODELS,
+        choices=AVAILABLE_MODELS,
         default=list(DEFAULT_MODELS),
+    )
+    parser.add_argument(
+        "--text-feature",
+        default=DEFAULT_TEXT_FEATURE,
+        help="Numeric feature used with Markdown by markdown_plus_feature",
     )
     return parser
 
@@ -519,6 +718,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             labels_frame,
             sample_size=args.sample_size,
             seed=args.seed,
+            include_markdown=bool(set(args.models).intersection(TEXT_MODELS)),
             local_data_only=args.local_data_only,
             data_dir=args.data_dir,
         )
@@ -528,6 +728,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             groups,
             confidence_scores=confidence_scores,
             model_names=args.models,
+            text_feature=args.text_feature,
             test_size=args.test_size,
             seed=args.seed,
             model_dir=args.model_dir,

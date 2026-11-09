@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import sys
@@ -15,6 +16,9 @@ from urllib.parse import SplitResult, urljoin, urlsplit
 import pandas as pd
 import requests
 
+LOGGER = logging.getLogger(__name__)
+ID_COLUMN = "file_url_sha16"
+MARKDOWN_COLUMN = "spec_markdown"
 SAMPLE_REPOS_URL = (
     "https://raw.githubusercontent.com/shyamagarwal13/specmine-official/"
     "main/sample_repos.txt"
@@ -235,6 +239,77 @@ def download_spec_files(df: pd.DataFrame, data_dir=None) -> pd.DataFrame:
             for i, repo, exc in failures[:5]
         )
         print(f"Skipped {len(failures)} unavailable files. First failures: {details}")
+    return result
+
+
+def load_spec_markdown(
+    metadata: pd.DataFrame, *, local_data_only=False, data_dir=None
+) -> pd.DataFrame:
+    """Load available spec Markdown by ID, reporting files that are unavailable.
+
+    Cached files are reused. In local-only mode no network request is made;
+    otherwise missing files are obtained with :func:`download_spec_files`.
+    Returned text is unmodified and only successfully read rows are included.
+    """
+    if not isinstance(metadata, pd.DataFrame):
+        raise TypeError("metadata must be a pandas DataFrame")
+    required = {ID_COLUMN, "repo_name", "file_url"}
+    missing_columns = required - set(metadata.columns)
+    if missing_columns:
+        raise KeyError(f"Spec data is missing columns: {sorted(missing_columns)}")
+
+    requested = metadata.copy()
+    requested[ID_COLUMN] = requested[ID_COLUMN].astype("string")
+    if (
+        requested[ID_COLUMN].isna().any()
+        or requested[ID_COLUMN].str.strip().eq("").any()
+    ):
+        raise ValueError("Spec IDs must not be missing or blank")
+    if requested[ID_COLUMN].duplicated().any():
+        raise ValueError("Spec metadata must contain at most one row per spec ID")
+    if requested.empty:
+        return pd.DataFrame(columns=[ID_COLUMN, MARKDOWN_COLUMN])
+
+    cache_dir = DATA_DIR if data_dir is None else Path(data_dir)
+    if local_data_only:
+        cached_rows = []
+        for _, row in requested.iterrows():
+            repo = row["repo_name"]
+            if not isinstance(repo, str) or not repo:
+                LOGGER.warning("Missing repository name for spec %s", row[ID_COLUMN])
+                continue
+            path = _spec_local_path(row, cache_dir)
+            if path.is_file() and path.stat().st_size > 0:
+                cached_rows.append((row[ID_COLUMN], path))
+    else:
+        downloaded = download_spec_files(requested, data_dir=cache_dir)
+        cached_rows = [
+            (row[ID_COLUMN], Path(row["local_path"]))
+            for _, row in downloaded.iterrows()
+        ]
+
+    records = []
+    for spec_id, path in cached_rows:
+        try:
+            markdown = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            LOGGER.warning("Cannot read Markdown for spec %s: %s", spec_id, exc)
+            continue
+        if not markdown.strip():
+            LOGGER.warning("Markdown for spec %s is empty", spec_id)
+            continue
+        records.append({ID_COLUMN: spec_id, MARKDOWN_COLUMN: markdown})
+
+    result = pd.DataFrame(records, columns=[ID_COLUMN, MARKDOWN_COLUMN])
+    unavailable = requested.loc[
+        ~requested[ID_COLUMN].isin(result[ID_COLUMN]), ID_COLUMN
+    ].tolist()
+    if unavailable:
+        LOGGER.warning(
+            "Markdown unavailable for %d spec(s): %s",
+            len(unavailable),
+            ", ".join(unavailable),
+        )
     return result
 
 

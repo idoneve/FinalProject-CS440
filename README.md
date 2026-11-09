@@ -118,15 +118,14 @@ notebooks. It includes both `spec_id` and the corresponding `repo_id` for
 repository-level leakage checks. Its deterministic confidence values are test
 data, not verified assessments. Do not copy fake rows into the real-label file
 or interpret fake confidence values as reviewed assessments. Use
-`notebooks/predict.ipynb` to
-train and evaluate one selected baseline using matched, nonblank labels, then
-refit on all labeled specs and
-predict a random sample of 100 specs not listed in the labels CSV. Specs
-without precomputed features are replaced from the unlabeled pool; if the full
-requested sample is not available, the notebook stops rather than saving an
-undersized result. The sample size and model are configurable. Each run
-publishes predictions to a unique CSV filename after a complete temporary-file
-write, so concurrent runs do not overwrite one another.
+`notebooks/predict.ipynb` to train and evaluate a selected baseline using
+matched, nonblank labels, refit on all available labeled specs, and predict a
+random sample of 100 specs not listed in the labels CSV. Specs without the
+selected model's required features or Markdown are replaced from the unlabeled
+pool; if the full requested sample is not available, the notebook stops rather
+than saving an undersized result. The sample size and model are configurable.
+Each run publishes predictions to a unique CSV filename after a complete
+temporary-file write, so concurrent runs do not overwrite one another.
 
 ## Notebook Quick Start
 
@@ -139,8 +138,8 @@ cached files are reused from `notebooks/data`.
 | --- | --- |
 | `notebooks/data_init.ipynb` | Reuses or fills the cache, samples up to three specs from distinct repositories, writes `notebooks/data/spec_sample.csv`, and displays one unreviewed repository with its Markdown, properties, and features. Set `CURATED_ONLY`, `SPEC_SAMPLE_SIZE`, and `SEED` near the top. |
 | `notebooks/show_specs.ipynb` | Looks up all distinct specs for one or more `REPO_IDS`, or specific `SPEC_IDS` (list or comma-separated string). It reuses cached files and downloads only missing metadata, features, or requested Markdown. |
-| `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model using all nonblank labels, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, and `PREDICTION_SAMPLE_SIZE` near the top to change the inputs. It saves models under `models/` and a uniquely named prediction CSV under `notebooks/`. |
-| `notebooks/results.ipynb` | Loads metadata and features from the same cache-first flow, builds repository-disjoint summaries, fits fresh confidence-weighted baselines, evaluates them, and saves figures under `notebooks/figures/`. By default it uses the fake-label fixture and reports agreement with those supplied labels, not verified authorship accuracy. |
+| `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, `TEXT_FEATURE`, `PREDICTION_SAMPLE_SIZE`, and `LOCAL_DATA_ONLY` near the top. It saves models under `models/` and a uniquely named prediction CSV under `notebooks/`. |
+| `notebooks/results.ipynb` | Compares all five models on the same repository-disjoint holdout, saves tables and plots in the notebook, and writes figures under `notebooks/figures/`. Set `TEXT_FEATURE` or `LOCAL_DATA_ONLY` near the top. Its default fake labels measure agreement with test data, not verified authorship accuracy. |
 
 For labeling, ambiguous evidence should be recorded with blank
 `label` and `confidence` fields. Nonblank labels must be `0` or `1`, and their
@@ -191,10 +190,25 @@ prediction CSVs and model files when run.
 
 ## Training Baselines
 
-The training module compares Logistic Regression and Random Forest baselines
-using numeric spec-content features and labels supplied by you. Commit history
-is not used by the current training/evaluation workflow. It refuses to train
-unless `--labels-csv` is provided. Use `1` when AI was used for any part of
+The training module provides five baselines:
+
+| Model name | Inputs and estimator |
+| --- | --- |
+| `logistic_regression` | All numeric spec-content features, with Logistic Regression. |
+| `random_forest` | All numeric spec-content features, with Random Forest. |
+| `naive_bayes` | Full Markdown represented by character TF-IDF, with Multinomial Naive Bayes; no numeric features. |
+| `uniform_guess` | Independent, seeded 50/50 class guesses; it ignores feature values. |
+| `markdown_plus_feature` | Full Markdown represented by character TF-IDF plus exactly one selected numeric feature, with Logistic Regression. |
+
+Both text models use case-sensitive character 3- to 5-gram TF-IDF with at most
+50,000 vocabulary terms. The vectorizer and numeric preprocessing are fitted
+only on the training partition. `markdown_plus_feature` defaults to `n_words`;
+choose another numeric column with `--text-feature`, the `text_feature`
+argument to `train_models`, or `TEXT_FEATURE` in the notebooks. The existing
+numeric baselines remain the CLI and Python API defaults. Commit history is
+not used by the current training/evaluation workflow.
+
+Training requires `--labels-csv`. Use `1` when AI was used for any part of
 creating a spec, `0` only when no AI was used, and a blank label for ambiguous
 cases to exclude. Repositories are kept separate between training and holdout
 data.
@@ -205,6 +219,25 @@ python -m specmine.train --labels-csv labels.csv --seed 42 \
   --model-dir models/baselines
 ```
 
+For a comparison including the new models:
+
+```bash
+python -m specmine.train --labels-csv labels.csv --seed 42 \
+  --models logistic_regression random_forest naive_bayes uniform_guess markdown_plus_feature \
+  --text-feature n_words --model-dir models/baselines
+```
+
+Selecting a text model loads Markdown for the matched labeled specs, reusing
+the cache and downloading missing files from approved GitHub URLs. Unavailable
+or unreadable Markdown is reported by spec ID and excluded from **all**
+selected models before their shared repository-disjoint split. Set
+`--local-data-only` to prevent network access; the same exclusions apply to
+uncached files, and trainable models require a split with both classes.
+Numeric-only and uniform-only selections do not download Markdown. When
+calling the Python API directly, request
+`prepare_training_data(..., include_markdown=True)` before training a text
+model.
+
 The training CSV requires `spec_id,label,confidence`: `spec_id` matches
 `file_url_sha16`, `label` is `0`, `1`, or blank, and `confidence` is a numeric
 score from 0 through 100. The manual-label CSV may additionally include
@@ -212,17 +245,19 @@ score from 0 through 100. The manual-label CSV may additionally include
 labels to features by `spec_id`. Every nonblank label must have a confidence
 score.
 Blank labels are excluded from training. The training code passes
-`confidence / 100` as a sample weight, so a score of 0 contributes no weight
-and 100 contributes full weight. Holdout metrics remain unweighted. Omit
+`confidence / 100` as a sample weight to the trainable estimators, so a score
+of 0 contributes no weight and 100 contributes full weight. The uniform
+guesser ignores those weights. Holdout metrics remain unweighted. Omit
 `--sample-size` to use all matched labeled examples; if supplied, it caps the
 matched rows after ID matching. Training reads the full metadata parquet to
 ensure labeled IDs are not lost to random sampling, then loads features only
-for labeled specs. Omit `--model-dir` to skip saving models. Select one or both
-estimators with `--models logistic_regression random_forest`.
+for labeled specs. Omit `--model-dir` to skip saving models.
 
 The results notebook reports predicted-class confidence as the larger of the
 two class probabilities, expressed from 0 to 100, alongside the probability
-that a spec is AI-assisted.
+that a spec is AI-assisted. The uniform guesser reports a probability of 0.5
+for each class and makes seeded random class guesses; its class predictions do
+not use the probability threshold.
 
 The training notebook defaults to `examples/fake_labels.csv` for testing.
 Manual labels should be added to `examples/real_labels.csv` in the labeling
@@ -257,7 +292,11 @@ python -m specmine.evaluate --model-path models/specmine.joblib \
 ```
 
 Without `--labels-csv`, the command emits predictions only and does not compute
-supervised metrics. `--split` accepts `train`, `test`, or `all`; use
+supervised metrics. For a text model without labels, provide `--sample-size`
+to bound the number of requested Markdown files. Missing Markdown is reported
+and excluded, and the JSON report includes `n_unavailable_markdown`.
+`--local-data-only` prevents Markdown downloads as well as parquet downloads.
+`--split` accepts `train`, `test`, or `all`; use
 `--make-val --split val` to deterministically carve a validation split out of
 train. CSV metadata is escaped when it begins with a spreadsheet formula
 prefix. Curated downloads use `--data-dir` (default `notebooks/data`).
