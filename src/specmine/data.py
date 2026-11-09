@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import os
 import re
@@ -8,7 +10,6 @@ import time
 from functools import lru_cache
 from numbers import Integral
 from pathlib import Path
-from typing import Optional
 from urllib.parse import SplitResult, urljoin, urlsplit
 
 import pandas as pd
@@ -240,7 +241,7 @@ def download_random_spec_sample(
     metadata: pd.DataFrame,
     sample_size: int,
     *,
-    seed: Optional[int] = None,
+    seed: int | None = None,
     data_dir=None,
     local_data_only=False,
 ) -> pd.DataFrame:
