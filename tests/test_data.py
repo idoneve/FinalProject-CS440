@@ -1,10 +1,9 @@
-# type: ignore
-
 import os
 from pathlib import Path
 
 import pandas as pd
 import pytest
+
 import specmine.data as sm
 
 
@@ -93,10 +92,25 @@ def fake_raw_response(monkeypatch):
 
 
 @pytest.fixture
-def patched_parquet(monkeypatch, fake_parquet_df):
-    def fake_read_parquet(url, engine=None):
+def patched_parquet(monkeypatch, fake_parquet_df, tmp_path):
+    monkeypatch.setattr(sm, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(sm, "DEFAULT_LOCAL_DATA_DIR", tmp_path)
+    curated_df = fake_parquet_df.loc[
+        fake_parquet_df["repo_name"].isin({"alice/repoA", "carol/repoC"})
+    ].copy()
+
+    def fake_download(filename, data_dir):
+        path = Path(data_dir) / "data" / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        return path
+
+    def fake_read_parquet(path, engine=None):
+        if Path(path).name == sm.CURATED_METADATA_FILENAME:
+            return curated_df.copy()
         return fake_parquet_df.copy()
 
+    monkeypatch.setattr(sm, "_download_dataset_parquet", fake_download)
     monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
 
 
@@ -107,22 +121,29 @@ class TestLoadFeatureData:
         yield
         sm._load_feature_table.cache_clear()
 
-    def test_loads_and_filters_feature_table(self, monkeypatch):
+    def test_loads_and_filters_feature_table(self, monkeypatch, tmp_path):
         feature_df = pd.DataFrame(
             {
                 "file_url_sha16": ["a", "b", "c"],
                 "n_lines": [1, 2, 3],
             }
         )
+        parquet_path = tmp_path / "data" / "spec_content_features.parquet"
+        parquet_path.parent.mkdir()
+        parquet_path.touch()
 
         def fake_read_parquet(url, engine=None):
-            assert url == sm.FEATURES_PARQUET_URL
+            assert Path(url) == parquet_path
             assert engine == "fastparquet"
             return feature_df.copy()
 
         monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
 
-        result = sm.load_feature_data(pd.DataFrame({"file_url_sha16": ["b", "c"]}))
+        result = sm.load_feature_data(
+            pd.DataFrame({"file_url_sha16": ["b", "c"]}),
+            local_data_only=True,
+            data_dir=tmp_path,
+        )
 
         assert result["file_url_sha16"].tolist() == ["b", "c"]
         assert result[["file_url_sha16", "n_lines"]].to_dict("records") == [
@@ -131,7 +152,7 @@ class TestLoadFeatureData:
         ]
 
     def test_loads_full_feature_table_when_filter_is_omitted_and_caches(
-        self, monkeypatch
+        self, monkeypatch, tmp_path
     ):
         feature_df = pd.DataFrame(
             {
@@ -139,6 +160,9 @@ class TestLoadFeatureData:
                 "n_lines": [1, 2],
             }
         )
+        parquet_path = tmp_path / "data" / "spec_content_features.parquet"
+        parquet_path.parent.mkdir()
+        parquet_path.touch()
         read_calls = []
 
         def fake_read_parquet(url, engine=None):
@@ -147,15 +171,63 @@ class TestLoadFeatureData:
 
         monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
 
-        first = sm.load_feature_data()
+        first = sm.load_feature_data(data_dir=tmp_path)
         first.loc[0, "n_lines"] = 99
-        second = sm.load_feature_data(None)
+        second = sm.load_feature_data(None, data_dir=tmp_path)
 
         assert second.to_dict("records") == [
             {"file_url_sha16": "a", "n_lines": 1},
             {"file_url_sha16": "b", "n_lines": 2},
         ]
-        assert read_calls == [(sm.FEATURES_PARQUET_URL, "fastparquet")]
+        assert read_calls == [(parquet_path, "fastparquet")]
+
+    def test_downloads_missing_feature_parquet_to_cache(
+        self, monkeypatch, tmp_path
+    ):
+        feature_df = pd.DataFrame(
+            {"file_url_sha16": ["a"], "n_lines": [1]}
+        )
+        downloads = []
+
+        def fake_download(filename, data_dir):
+            downloads.append(filename)
+            path = data_dir / "data" / filename
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+            return path
+
+        monkeypatch.setattr(sm, "_download_dataset_parquet", fake_download)
+        monkeypatch.setattr(
+            sm.pd,
+            "read_parquet",
+            lambda path, engine=None: feature_df.copy(),
+        )
+
+        result = sm.load_feature_data(data_dir=tmp_path)
+
+        assert result.equals(feature_df)
+        assert downloads == ["spec_content_features.parquet"]
+        assert (tmp_path / "data" / "spec_content_features.parquet").is_file()
+
+    def test_loads_feature_table_from_local_cache(self, monkeypatch, tmp_path):
+        feature_df = pd.DataFrame(
+            {"file_url_sha16": ["a"], "n_lines": [1]}
+        )
+        parquet_path = tmp_path / "data" / "spec_content_features.parquet"
+        parquet_path.parent.mkdir()
+        parquet_path.touch()
+        read_calls = []
+
+        def fake_read_parquet(path, engine=None):
+            read_calls.append((Path(path), engine))
+            return feature_df.copy()
+
+        monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
+
+        result = sm.load_feature_data(local_data_only=True, data_dir=tmp_path)
+
+        assert result.equals(feature_df)
+        assert read_calls == [(parquet_path, "fastparquet")]
 
 
 class TestBlobToRaw:
@@ -210,10 +282,336 @@ class TestSafeFilename:
         b = sm._safe_local_filename("o/r", "b/spec.md", "")
         assert a != b
 
+    def test_missing_path_and_sha_use_url_specific_cache_identity(self, tmp_path):
+        first = pd.Series(
+            {
+                "repo_name": "o/r",
+                "file_path": pd.NA,
+                "file_sha": pd.NA,
+                "file_last_commit_sha": pd.NA,
+                "file_url": "https://github.com/o/r/blob/main/first.md",
+            }
+        )
+        second = first.copy()
+        second["file_url"] = "https://github.com/o/r/blob/main/second.md"
+
+        assert sm._spec_local_path(first, tmp_path) != sm._spec_local_path(
+            second, tmp_path
+        )
+
     def test_full_sha_distinguishes_shared_prefixes(self):
         a = sm._safe_local_filename("o/r", "spec.md", "deadbeef" + "a" * 56)
         b = sm._safe_local_filename("o/r", "spec.md", "deadbeef" + "b" * 56)
         assert a != b
+
+
+class TestDownloadSpecFiles:
+    def test_downloads_every_repo_to_requested_directory(
+        self, fake_parquet_df, fake_raw_response, tmp_path
+    ):
+        data_dir = tmp_path / "all-specs"
+
+        result = sm.download_spec_files(fake_parquet_df, data_dir=data_dir)
+
+        assert len(result) == len(fake_parquet_df)
+        assert set(result["repo_name"]) == set(fake_parquet_df["repo_name"])
+        assert all(Path(path).parent == data_dir for path in result["local_path"])
+        assert all(Path(path).is_file() for path in result["local_path"])
+        assert len(fake_raw_response) == len(fake_parquet_df)
+
+    def test_reuses_existing_files(self, fake_parquet_df, fake_raw_response, tmp_path):
+        data_dir = tmp_path / "all-specs"
+
+        first = sm.download_spec_files(fake_parquet_df, data_dir=data_dir)
+        request_count = len(fake_raw_response)
+        second = sm.download_spec_files(fake_parquet_df, data_dir=data_dir)
+
+        assert second["local_path"].tolist() == first["local_path"].tolist()
+        assert len(fake_raw_response) == request_count
+
+    def test_returns_paths_for_successful_rows_and_reports_failures(
+        self, fake_parquet_df, monkeypatch, tmp_path
+    ):
+        attempted = []
+
+        def fake_download(url, dest):
+            attempted.append(url)
+            if len(attempted) == 1:
+                raise OSError("network unavailable")
+            dest.write_text("# spec\n")
+            return True
+
+        monkeypatch.setattr(sm, "_download_file", fake_download)
+
+        result = sm.download_spec_files(fake_parquet_df, data_dir=tmp_path)
+
+        assert len(attempted) == len(fake_parquet_df)
+        assert len(result) == len(fake_parquet_df) - 1
+        assert "local_path" in result.columns
+        assert result["file_url"].tolist() == fake_parquet_df["file_url"].iloc[1:].tolist()
+        assert all(Path(path).is_file() for path in result["local_path"])
+
+
+class TestLoadSpecMarkdown:
+    def test_downloads_and_reuses_complete_markdown(
+        self, fake_parquet_df, fake_raw_response, tmp_path
+    ):
+        metadata = fake_parquet_df.iloc[:2].copy()
+        metadata["file_url_sha16"] = ["first", "second"]
+
+        first = sm.load_spec_markdown(metadata, data_dir=tmp_path)
+        second = sm.load_spec_markdown(metadata, data_dir=tmp_path)
+
+        assert first["file_url_sha16"].tolist() == ["first", "second"]
+        assert first[sm.MARKDOWN_COLUMN].tolist() == ["# spec\nhello\n"] * 2
+        pd.testing.assert_frame_equal(first, second)
+        assert len(fake_raw_response) == 2
+
+    def test_reports_failed_downloads_and_keeps_available_specs(
+        self, fake_parquet_df, monkeypatch, tmp_path, caplog, capsys
+    ):
+        metadata = fake_parquet_df.iloc[:2].copy()
+        metadata["file_url_sha16"] = ["available", "unavailable"]
+
+        def fake_download(url, dest):
+            if url.endswith("/plan.md"):
+                raise OSError("file unavailable")
+            dest.write_text("# available\n", encoding="utf-8")
+            return True
+
+        monkeypatch.setattr(sm, "_download_file", fake_download)
+        result = sm.load_spec_markdown(metadata, data_dir=tmp_path)
+
+        assert result["file_url_sha16"].tolist() == ["available"]
+        assert "Markdown unavailable for 1 spec(s): unavailable" in caplog.text
+        assert "Skipped 1 unavailable files" in capsys.readouterr().out
+
+    def test_local_only_skips_missing_and_invalid_files_without_network(
+        self, fake_parquet_df, monkeypatch, tmp_path, caplog
+    ):
+        metadata = fake_parquet_df.iloc[:3].copy()
+        metadata["file_url_sha16"] = ["cached", "invalid", "missing"]
+        sm._spec_local_path(metadata.iloc[0], tmp_path).write_text(
+            "# cached\n", encoding="utf-8"
+        )
+        sm._spec_local_path(metadata.iloc[1], tmp_path).write_bytes(b"\xff")
+
+        def unexpected_request(*args, **kwargs):
+            raise AssertionError("local-only Markdown loading must not use the network")
+
+        monkeypatch.setattr(sm.requests, "get", unexpected_request)
+        result = sm.load_spec_markdown(metadata, local_data_only=True, data_dir=tmp_path)
+
+        assert result.to_dict("records") == [
+            {"file_url_sha16": "cached", sm.MARKDOWN_COLUMN: "# cached\n"}
+        ]
+        assert "Cannot read Markdown for spec invalid" in caplog.text
+        assert "invalid, missing" in caplog.text
+
+    def test_rejects_duplicate_spec_ids(self, fake_parquet_df, tmp_path):
+        metadata = fake_parquet_df.iloc[:2].copy()
+        metadata["file_url_sha16"] = ["same", "same"]
+        with pytest.raises(ValueError, match="at most one row per spec ID"):
+            sm.load_spec_markdown(metadata, local_data_only=True, data_dir=tmp_path)
+
+
+class TestDownloadRandomSpecSample:
+    @pytest.fixture
+    def metadata(self):
+        return pd.DataFrame(
+            {
+                "repo_id": [10, 10, 20, 20, 30, 40, 50, 60],
+                "repo_name": [
+                    "owner/a",
+                    "owner/a",
+                    "owner/b",
+                    "owner/b",
+                    "owner/c",
+                    "owner/d",
+                    "owner/e",
+                    "owner/f",
+                ],
+                "file_url_sha16": [
+                    "a1",
+                    "a2",
+                    "b1",
+                    "b2",
+                    "c1",
+                    "d1",
+                    "e1",
+                    "f1",
+                ],
+                "file_url": [f"https://github.com/o/r/blob/s/{i}.md" for i in range(8)],
+            }
+        )
+
+    def test_selects_requested_count_with_distinct_specs_and_repositories(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            sm,
+            "download_spec_files",
+            lambda df, data_dir: df.assign(local_path="cached.md"),
+        )
+
+        result = sm.download_random_spec_sample(
+            metadata, 4, seed=7, data_dir=tmp_path
+        )
+
+        assert len(result) == 4
+        assert result["file_url_sha16"].is_unique
+        assert result["repo_id"].is_unique
+        assert result["local_path"].eq("cached.md").all()
+
+    def test_sample_is_reproducible_for_a_fixed_seed(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            sm,
+            "download_spec_files",
+            lambda df, data_dir: df.assign(local_path="cached.md"),
+        )
+
+        first = sm.download_random_spec_sample(
+            metadata, 4, seed=7, data_dir=tmp_path
+        )
+        second = sm.download_random_spec_sample(
+            metadata, 4, seed=7, data_dir=tmp_path
+        )
+
+        assert first["file_url_sha16"].tolist() == second["file_url_sha16"].tolist()
+
+    def test_replaces_failed_downloads_with_later_distinct_repositories(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        attempted_batches = []
+
+        def fake_download(df, data_dir):
+            attempted_batches.append(df.copy())
+            batch = df.copy()
+            if len(attempted_batches) == 1:
+                batch = batch.iloc[1:]
+            return batch.assign(local_path="cached.md")
+
+        monkeypatch.setattr(sm, "download_spec_files", fake_download)
+
+        result = sm.download_random_spec_sample(
+            metadata, 3, seed=7, data_dir=tmp_path
+        )
+
+        assert len(attempted_batches) == 2
+        assert len(result) == 3
+        assert result["repo_id"].is_unique
+        assert result["file_url_sha16"].is_unique
+        assert not set(attempted_batches[0]["repo_id"]) & set(
+            attempted_batches[1]["repo_id"]
+        )
+
+    def test_replaces_empty_download_with_later_candidate(
+        self, monkeypatch, tmp_path
+    ):
+        metadata = pd.DataFrame(
+            {
+                "repo_id": [1, 2],
+                "repo_name": ["o/first", "o/second"],
+                "file_url_sha16": ["first", "second"],
+                "file_url": [
+                    "https://github.com/o/first/blob/main/spec.md",
+                    "https://github.com/o/second/blob/main/spec.md",
+                ],
+                "file_path": ["spec.md", "spec.md"],
+                "file_sha": ["sha1", "sha2"],
+            }
+        )
+        requested_urls = []
+
+        class Response:
+            headers = {"Content-Type": "text/plain"}
+
+            def __init__(self, content):
+                self.content = content
+
+            def raise_for_status(self):
+                pass
+
+        def fake_response(url, *, timeout):
+            requested_urls.append(url)
+            content = b"" if len(requested_urls) == 1 else b"# spec\n"
+            return Response(content)
+
+        monkeypatch.setattr(sm, "_get_github_response", fake_response)
+
+        result = sm.download_random_spec_sample(metadata, 1, seed=0, data_dir=tmp_path)
+
+        assert len(requested_urls) == 2
+        assert len(result) == 1
+        assert Path(result.iloc[0]["local_path"]).stat().st_size > 0
+
+    def test_collapses_duplicate_spec_ids_before_sampling(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        duplicate = metadata.iloc[[0]].copy()
+        duplicate["file_url"] = "https://github.com/o/r/blob/other/duplicate.md"
+        metadata = pd.concat([metadata, duplicate], ignore_index=True)
+        monkeypatch.setattr(
+            sm,
+            "download_spec_files",
+            lambda df, data_dir: df.assign(local_path="cached.md"),
+        )
+
+        result = sm.download_random_spec_sample(
+            metadata, 5, seed=11, data_dir=tmp_path
+        )
+
+        assert len(result) == 5
+        assert result["file_url_sha16"].is_unique
+        assert result["repo_id"].is_unique
+
+    def test_rejects_spec_id_mapped_to_multiple_repositories(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        ambiguous = metadata.iloc[[0]].copy()
+        ambiguous["repo_id"] = 999
+        ambiguous["repo_name"] = "owner/other"
+        metadata = pd.concat([metadata, ambiguous], ignore_index=True)
+
+        with pytest.raises(ValueError, match="multiple repositories"):
+            sm.download_random_spec_sample(metadata, 2, seed=1, data_dir=tmp_path)
+
+    def test_rejects_request_larger_than_unique_repository_count(
+        self, metadata, tmp_path
+    ):
+        with pytest.raises(ValueError, match="only 6 eligible repositories"):
+            sm.download_random_spec_sample(metadata, 7, seed=1, data_dir=tmp_path)
+
+    def test_local_only_uses_cached_specs_without_downloading(
+        self, metadata, monkeypatch, tmp_path
+    ):
+        metadata["file_path"] = [f"{spec_id}.md" for spec_id in metadata["file_url_sha16"]]
+        metadata["file_sha"] = metadata["file_url_sha16"]
+        cached_rows = metadata.iloc[[1, 2]]
+        for _, row in cached_rows.iterrows():
+            path = sm._spec_local_path(row, tmp_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# cached spec\n")
+
+        def unexpected_download(*args, **kwargs):
+            raise AssertionError("local-only sampling must not download specs")
+
+        monkeypatch.setattr(sm, "download_spec_files", unexpected_download)
+
+        result = sm.download_random_spec_sample(
+            metadata,
+            5,
+            seed=7,
+            data_dir=tmp_path,
+            local_data_only=True,
+        )
+
+        assert len(result) == len(cached_rows)
+        assert result["repo_id"].is_unique
+        assert result["file_url_sha16"].is_unique
+        assert all(Path(path).is_file() for path in result["local_path"])
 
 
 class TestFetchSampleRepoNames:
@@ -256,7 +654,7 @@ class TestSplitTrainTest:
         assert set(s1["repo_name"]) == set(s2["repo_name"])
 
     def test_repo_assignment_stable_when_subsetting(self, fake_parquet_df):
-        full_train, full_test = sm.split_train_test(fake_parquet_df, test_size=0.5)
+        _full_train, full_test = sm.split_train_test(fake_parquet_df, test_size=0.5)
         test_repos_full = set(full_test["repo_name"])
 
         subset = fake_parquet_df[
@@ -340,6 +738,117 @@ class TestLoadDataFull:
         train, test = out
         sm.assert_no_leakage(train, test)
 
+    def test_local_data_only_loads_parquet_from_cache(self, monkeypatch, tmp_path):
+        parquet_path = tmp_path / "data" / "spec_files.parquet"
+        parquet_path.parent.mkdir()
+        parquet_path.touch()
+        read_calls = []
+
+        def fake_read_parquet(path, engine=None):
+            read_calls.append((Path(path), engine))
+            return pd.DataFrame({"repo_name": ["owner/repo"]})
+
+        monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
+
+        result = sm.load_data(local_data_only=True, data_dir=tmp_path)
+
+        assert result["repo_name"].tolist() == ["owner/repo"]
+        assert read_calls == [(parquet_path, "fastparquet")]
+
+    def test_local_data_only_missing_file_fails_without_remote_fallback(
+        self, monkeypatch, tmp_path
+    ):
+        def unexpected_read(*args, **kwargs):
+            raise AssertionError("read_parquet should not be called for a missing cache")
+
+        monkeypatch.setattr(sm.pd, "read_parquet", unexpected_read)
+
+        with pytest.raises(FileNotFoundError, match="data_init.ipynb"):
+            sm.load_data(local_data_only=True, data_dir=tmp_path)
+
+    def test_local_data_only_rejects_curated_mode(self, tmp_path):
+        with pytest.raises(ValueError, match="curated_only"):
+            sm.load_data(
+                curated_only=True,
+                local_data_only=True,
+                data_dir=tmp_path,
+            )
+
+
+def test_download_dataset_parquets_uses_local_huggingface_directory(
+    monkeypatch, tmp_path
+):
+    calls = []
+
+    def fake_download(**kwargs):
+        calls.append(kwargs)
+        path = tmp_path / kwargs["filename"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        return str(path)
+
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", fake_download)
+
+    result = sm.download_dataset_parquets(tmp_path)
+
+    assert set(result) == {"spec_files.parquet", "spec_content_features.parquet"}
+    assert all(path.is_file() for path in result.values())
+    assert [call["filename"] for call in calls] == [
+        "data/spec_files.parquet",
+        "data/spec_content_features.parquet",
+    ]
+    assert all(call["repo_id"] == sm.DATASET_REPO_ID for call in calls)
+    assert all(call["repo_type"] == "dataset" for call in calls)
+
+
+def test_download_dataset_parquets_reuses_existing_files(monkeypatch, tmp_path):
+    cached = {
+        filename: tmp_path / "data" / filename
+        for filename in sm.PARQUET_FILENAMES
+    }
+    for path in cached.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    def unexpected_download(**kwargs):
+        raise AssertionError("cached parquet files must not be downloaded")
+
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", unexpected_download)
+
+    assert sm.download_dataset_parquets(tmp_path) == cached
+
+
+def test_load_data_caches_missing_parquet_and_reuses_it(monkeypatch, tmp_path):
+    data = pd.DataFrame({"repo_name": ["owner/repo"]})
+    downloads = []
+    reads = []
+
+    def fake_download(filename, data_dir):
+        downloads.append(filename)
+        path = data_dir / "data" / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        return path
+
+    def fake_read(path, engine=None):
+        reads.append((Path(path), engine))
+        return data.copy()
+
+    monkeypatch.setattr(sm, "_download_dataset_parquet", fake_download)
+    monkeypatch.setattr(sm.pd, "read_parquet", fake_read)
+
+    first = sm.load_data(data_dir=tmp_path)
+    second = sm.load_data(data_dir=tmp_path)
+
+    expected_path = tmp_path / "data" / "spec_files.parquet"
+    assert first.equals(data)
+    assert second.equals(data)
+    assert downloads == ["spec_files.parquet"]
+    assert reads == [
+        (expected_path, "fastparquet"),
+        (expected_path, "fastparquet"),
+    ]
+
 
 class TestLoadDataCurated:
     def test_returns_same_schema_plus_local_path(
@@ -386,13 +895,59 @@ class TestLoadDataCurated:
     def test_second_call_is_idempotent(
         self, patched_parquet, fake_raw_response, tmp_path, monkeypatch
     ):
-        monkeypatch.setattr(sm, "DATA_DIR", tmp_path / "data")
+        data_dir = tmp_path / "data"
+        monkeypatch.setattr(sm, "DATA_DIR", data_dir)
         sm.load_data(curated_only=True)
-        n_first = len(fake_raw_response)
+        first_call_count = len(fake_raw_response)
         sm.load_data(curated_only=True)
-        new_calls = fake_raw_response[n_first:]
-        spec_calls = [u for u in new_calls if "sample_repos.txt" not in u]
-        assert spec_calls == []
+
+        assert len(fake_raw_response) == first_call_count
+        assert (
+            data_dir / "data" / sm.CURATED_METADATA_FILENAME
+        ).is_file()
+
+    def test_can_load_curated_metadata_without_downloading_raw_specs(
+        self, patched_parquet, fake_raw_response, tmp_path
+    ):
+        result = sm.load_data(
+            curated_only=True,
+            data_dir=tmp_path / "cache",
+            download_raw_specs=False,
+        )
+
+        assert result is not None and len(result) == 4
+        assert "local_path" not in result.columns
+        assert all("sample_repos.txt" in url for url in fake_raw_response)
+
+    def test_curated_metadata_cache_avoids_rescanning_full_parquet(
+        self, patched_parquet, fake_parquet_df, fake_raw_response, monkeypatch, tmp_path
+    ):
+        curated_df = fake_parquet_df.loc[
+            fake_parquet_df["repo_name"].isin({"alice/repoA", "carol/repoC"})
+        ].copy()
+        read_names = []
+
+        def fake_read_parquet(path, engine=None):
+            read_names.append(Path(path).name)
+            if Path(path).name == sm.CURATED_METADATA_FILENAME:
+                return curated_df.copy()
+            return fake_parquet_df.copy()
+
+        monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
+
+        sm.load_data(
+            curated_only=True,
+            data_dir=tmp_path,
+            download_raw_specs=False,
+        )
+        sm.load_data(
+            curated_only=True,
+            data_dir=tmp_path,
+            download_raw_specs=False,
+        )
+
+        assert read_names == ["spec_files.parquet", sm.CURATED_METADATA_FILENAME]
+        assert fake_raw_response == [sm.SAMPLE_REPOS_URL]
 
     def test_null_path_and_sha_metadata_are_supported(
         self,

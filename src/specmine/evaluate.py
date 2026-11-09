@@ -20,6 +20,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
+from sklearn.dummy import DummyClassifier
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
@@ -32,7 +33,12 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split
 
-from specmine.data import load_data, load_feature_data
+from specmine.data import (
+    MARKDOWN_COLUMN,
+    load_data,
+    load_feature_data,
+    load_spec_markdown,
+)
 from specmine.features import build_features
 from specmine.labels import read_labels_csv as _read_labels
 
@@ -83,10 +89,17 @@ def _load_model(model_path: Path) -> typing.Any:
     return model
 
 
+def _is_uniform_guesser(model: typing.Any) -> bool:
+    classifier = getattr(model, "named_steps", {}).get("classifier", model)
+    return isinstance(classifier, DummyClassifier) and classifier.strategy == "uniform"
+
+
 def _expected_columns(model: typing.Any) -> list[str]:
     """Get named model inputs so inference cannot silently use the wrong columns."""
     columns = getattr(model, "feature_names_in_", None)
     if columns is None:
+        if _is_uniform_guesser(model):
+            return []
         raise ValueError(
             "Model does not expose feature_names_in_; fit the pipeline with a "
             "DataFrame so its expected feature columns can be checked."
@@ -156,18 +169,13 @@ def _prediction_rows(
     return rows
 
 
-def evaluate_model(
+def predict_model(
     model: typing.Any, df: pd.DataFrame, threshold: float = 0.5
-) -> dict[str, typing.Any]:
-    """Predict probabilities and compute metrics when ``df`` includes labels.
-
-    The model must expose ``feature_names_in_`` and ``predict_proba``. Only its
-    expected feature columns are passed to it; optional metadata is preserved
-    in the returned per-example rows.
-    """
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return class-1 probabilities and predictions for a fitted model."""
     if not 0 <= threshold <= 1:
         raise ValueError("threshold must be between 0 and 1")
-    if df is None or df.empty:
+    if df is None or len(df) == 0:
         raise ValueError("Cannot evaluate an empty data split")
 
     expected = _expected_columns(model)
@@ -176,7 +184,28 @@ def evaluate_model(
         raise ValueError(f"Evaluation data is missing model feature columns: {missing}")
     features = df.loc[:, expected]
     y_prob = _expected_positive_probabilities(model, features)
-    y_pred = (y_prob >= threshold).astype("int8")
+    if _is_uniform_guesser(model):
+        y_pred = np.asarray(model.predict(features))
+        if y_pred.ndim != 1 or len(y_pred) != len(features) or not np.isin(
+            y_pred, [0, 1]
+        ).all():
+            raise ValueError("Uniform guesser returned invalid class predictions")
+        y_pred = y_pred.astype("int8")
+    else:
+        y_pred = (y_prob >= threshold).astype("int8")
+    return y_prob, y_pred
+
+
+def evaluate_model(
+    model: typing.Any, df: pd.DataFrame, threshold: float = 0.5
+) -> dict[str, typing.Any]:
+    """Predict probabilities and compute metrics when ``df`` includes labels.
+
+    Only the model's expected feature columns are passed to it. Uniform dummy
+    classifiers sample labels rather than thresholding their 0.5 probabilities.
+    Optional metadata is preserved in the returned per-example rows.
+    """
+    y_prob, y_pred = predict_model(model, df, threshold=threshold)
 
     metrics: dict[str, typing.Any] | None = None
     if LABEL_COLUMN in df:
@@ -239,13 +268,19 @@ def _attach_labels(df: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:
     return result.drop(columns=["_spec_id_join", "spec_id", "_label_merge"])
 
 
-def _load_features(df: pd.DataFrame) -> pd.DataFrame:
+def _load_features(
+    df: pd.DataFrame, *, local_data_only=False, data_dir=None
+) -> pd.DataFrame:
     """Join the cached SpecMine features and apply the shared feature builder."""
     if ID_COLUMN not in df.columns:
         raise ValueError(f"Loaded SpecMine data is missing identifier {ID_COLUMN!r}")
     if df[ID_COLUMN].duplicated().any():
         raise ValueError(f"Loaded SpecMine data contains duplicate {ID_COLUMN} values")
-    raw_features = load_feature_data(df[[ID_COLUMN]])
+    raw_features = load_feature_data(
+        df[[ID_COLUMN]],
+        local_data_only=local_data_only,
+        data_dir=data_dir,
+    )
     engineered = build_features(raw_features)
     missing_ids = df.loc[~df[ID_COLUMN].isin(engineered[ID_COLUMN]), ID_COLUMN]
     if not missing_ids.empty:
@@ -306,6 +341,7 @@ def _load_selected_data(
         "sample_size": args.sample_size,
         "seed": args.seed,
         "data_dir": args.data_dir,
+        "local_data_only": args.local_data_only,
     }
     if args.split == "all":
         data: DataFrame = load_data(**load_options)
@@ -338,10 +374,16 @@ def _evaluate(args: argparse.Namespace) -> dict[str, typing.Any]:
     """Load inputs, run inference, and assemble report metadata."""
     model = _load_model(args.model_path)
     labels = _read_labels(args.labels_csv) if args.labels_csv else None
+    expected = _expected_columns(model)
+    needs_markdown = MARKDOWN_COLUMN in expected
+    if needs_markdown and labels is None and args.sample_size is None:
+        raise ValueError(
+            "Text-model evaluation without --labels-csv requires --sample-size "
+            "to limit the requested Markdown files"
+        )
     data = _load_selected_data(args, labels)
     if data.empty:
         raise ValueError(f"The selected {args.split!r} split is empty")
-    data = _load_features(data)
 
     n_unlabeled = 0
     n_unmatched = 0
@@ -362,6 +404,24 @@ def _evaluate(args: argparse.Namespace) -> dict[str, typing.Any]:
             "No --labels-csv provided; emitting predictions without accuracy metrics"
         )
 
+    if any(column != MARKDOWN_COLUMN for column in expected):
+        data = _load_features(
+            data,
+            local_data_only=args.local_data_only,
+            data_dir=args.data_dir,
+        )
+
+    n_unavailable_markdown = 0
+    if needs_markdown:
+        markdown = load_spec_markdown(
+            data, local_data_only=args.local_data_only, data_dir=args.data_dir
+        )
+        original_count = len(data)
+        data = data.merge(markdown, on=ID_COLUMN, how="inner", validate="one_to_one")
+        n_unavailable_markdown = original_count - len(data)
+        if data.empty:
+            raise ValueError("No selected specs have readable Markdown")
+
     result = evaluate_model(model, data, threshold=args.threshold)
     result.update(
         {
@@ -370,6 +430,7 @@ def _evaluate(args: argparse.Namespace) -> dict[str, typing.Any]:
             "n_labeled": result["n_examples"] if args.labels_csv else 0,
             "n_unlabeled": n_unlabeled,
             "n_unmatched": n_unmatched,
+            "n_unavailable_markdown": n_unavailable_markdown,
         }
     )
     return result
@@ -427,10 +488,15 @@ def _print_summary(result: dict[str, typing.Any]) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser."""
     parser = argparse.ArgumentParser(description="Evaluate a SpecMine classifier.")
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--sample-size", type=int)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--curated-only", action="store_true")
+    parser.add_argument(
+        "--local-data-only",
+        action="store_true",
+        help="Read metadata, features, and Markdown from the local cache only",
+    )
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument(
         "--labels-csv",
