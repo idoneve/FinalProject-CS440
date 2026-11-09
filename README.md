@@ -45,17 +45,15 @@ df = load_data(curated_only=True, sample_size=500, seed=0)
 ```
 
 The loader needs an internet connection to access the dataset. Use
-`notebooks/data_init.ipynb` to download the metadata and content-feature parquet
-files to `notebooks/data/data/`, then download a configurable random sample of
-raw spec Markdown (300 files by default). The notebook samples one spec per
-repository, then automatically chooses an unreviewed repository from that
-sample and displays its Markdown, exact feature row, and metadata. Repeated
-spec IDs and repositories are excluded from the sample; failed downloads are
-replaced with candidates from other repositories. Change `SPEC_SAMPLE_SIZE`
-or `SEED` near the top of the notebook. The sample manifest is saved as
-`notebooks/data/spec_sample.csv`; already downloaded Markdown files are reused.
-The separate `initialize_data.ipynb`, `label_specs.ipynb`, and
-`show_specs.ipynb` notebooks remain available for those individual workflows.
+`notebooks/data_init.ipynb` to reuse the metadata and content-feature parquet
+files already in `notebooks/data/`, or download them there if either is missing.
+It then downloads or reuses a configurable random sample of raw spec Markdown
+(300 files by default), with one unique spec per repository, and chooses an
+unreviewed repository from that downloaded sample to display its Markdown,
+exact feature row, and metadata. Repeated spec IDs and repositories are excluded
+from the sample; failed downloads are replaced with candidates from other
+repositories. Change `SPEC_SAMPLE_SIZE` or `SEED` near the top of the notebook.
+The sample manifest is saved as `notebooks/data/spec_sample.csv`.
 
 The Python API can also be told to use the local cache without a network
 fallback:
@@ -74,16 +72,13 @@ directory. If a parquet file is missing, local-only mode raises
 `local_data_only=False`, preserving remote loading. Local-only mode cannot be
 combined with `curated_only=True`, which downloads raw spec files.
 
-Use `notebooks/data_init.ipynb` for the combined sampling and review workflow,
-or `notebooks/label_specs.ipynb` to select an unlabeled repository from the
-full metadata parquet. Markdown is shown as escaped text so remote images and
-embedded HTML are not rendered. The curated downloader accepts only HTTPS URLs on `github.com` and
+Use `notebooks/data_init.ipynb` for data initialization, sampling, and review.
+Use `notebooks/show_specs.ipynb` to look up IDs and inspect all repository/spec
+properties, matched features, and Markdown. Missing parquet files and requested
+spec Markdown are downloaded into the data directory. Markdown is shown as
+escaped text so remote images and embedded HTML are not rendered. The curated
+downloader accepts only HTTPS URLs on `github.com` and
 `raw.githubusercontent.com` and validates every redirect before following it.
-Use `notebooks/show_specs.ipynb` to inspect existing data by setting either
-`REPO_IDS` (shows all distinct specs in those repositories) or `SPEC_IDS`
-(shows those specs). Each setting accepts a list or comma-separated string. It
-displays each selected file and its exactly matched feature row; missing
-metadata, features, or spec files are reported explicitly.
 Record one reviewed row in `examples/real_labels.csv` using
 `repo_id,spec_id,label,confidence`. `repo_id` identifies the repository for
 leakage prevention; `spec_id` identifies the exact spec and remains the model
@@ -120,20 +115,19 @@ results workflows read the parquet files locally.
 
 | Notebook | Purpose and how to use it |
 | --- | --- |
-| `notebooks/data_init.ipynb` | Combined initialization and review workflow. Set `SPEC_SAMPLE_SIZE` and `SEED` near the top, then run all cells. It caches the metadata and feature parquets, downloads a random sample of one spec per repository, writes `notebooks/data/spec_sample.csv`, and displays one unreviewed repository from that sample. The default sample size is 300; `SEED = None` chooses a new sample each run. |
-| `notebooks/initialize_data.ipynb` | Cache initialization without the review display. Set `SPEC_SAMPLE_SIZE` and `SEED`, then run all cells. It downloads the parquets and a random, distinct-repository Markdown sample, and saves the manifest. Use this before the separate labeling or inspection notebooks if you do not use `data_init.ipynb`. |
-| `notebooks/label_specs.ipynb` | Selects one repository not already present in either label CSV from the full cached metadata, downloads one spec from it if needed, and displays its Markdown and features. Add the reviewed `repo_id,spec_id,label,confidence` row to `examples/real_labels.csv` yourself. |
-| `notebooks/show_specs.ipynb` | Inspects existing specs. In its first code cell, set either `REPO_IDS` to one or more repository IDs or `SPEC_IDS` to one or more spec IDs (as a list or comma-separated string), but not both. It displays the selected specs, matched features, and Markdown. |
+| `notebooks/data_init.ipynb` | Initializes or reuses the metadata and feature parquet cache, downloads/reuses a random sample of one spec per repository, writes `notebooks/data/spec_sample.csv`, and displays one unreviewed repository from that sample. Set `SPEC_SAMPLE_SIZE` and `SEED` near the top; the default sample size is 300 and `SEED = None` chooses a new sample each run. |
+| `notebooks/show_specs.ipynb` | Looks up all distinct specs for one or more `REPO_IDS`, or specific `SPEC_IDS` (list or comma-separated string). It downloads missing parquet or Markdown files, then displays all repository/spec properties, matched features, and Markdown. |
 | `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model using all nonblank labels, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, and `PREDICTION_SAMPLE_SIZE` near the top to change the inputs. It saves models under `models/` and a uniquely named prediction CSV under `notebooks/`. |
 | `notebooks/results.ipynb` | Builds the dataset and repository-disjoint split summaries, fits fresh confidence-weighted baselines, evaluates them, and saves figures under `notebooks/figures/`. By default it uses the fake-label fixture and reports agreement with those supplied labels, not verified authorship accuracy. |
 
-For either labeling workflow, ambiguous evidence should be recorded with blank
+For labeling, ambiguous evidence should be recorded with blank
 `label` and `confidence` fields. Nonblank labels must be `0` or `1`, and their
 confidence must be from 0 to 100. Do not copy rows from `fake_labels.csv` into
 `real_labels.csv`; the fake labels and their confidence values are test data.
 The `data_init.ipynb` workflow selects its review repository from the downloaded
-sample, so increase `SPEC_SAMPLE_SIZE` or use `label_specs.ipynb` if that
-sample contains no repository that is still available to review.
+sample and reports an error if no eligible downloaded spec is available; increase
+`SPEC_SAMPLE_SIZE` if the sample contains no repository that is still available
+to review.
 
 ## Project Structure
 
@@ -146,8 +140,6 @@ FinalProject-CS440/
 ├── models/                      # Saved scikit-learn model pipelines
 ├── notebooks/
 │   ├── data_init.ipynb          # Combined sample and review workflow
-│   ├── initialize_data.ipynb    # Cache and spec-sample initialization
-│   ├── label_specs.ipynb        # Review one unlabelled repository
 │   ├── show_specs.ipynb         # Inspect specs by repo or spec ID
 │   ├── predict.ipynb            # Train, evaluate, and predict
 │   ├── results.ipynb            # Evaluation summaries and plots
