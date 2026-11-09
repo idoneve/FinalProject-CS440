@@ -158,6 +158,8 @@ def _spec_local_path(row: pd.Series, data_dir: Path) -> Path:
     if not sha:
         sha = row.get("file_last_commit_sha", "")
         sha = "" if pd.isna(sha) else str(sha)
+    if not file_path or not sha:
+        sha = hashlib.sha256(str(row["file_url"]).encode("utf-8")).hexdigest()
     return data_dir / _safe_local_filename(repo, file_path, sha)
 
 
