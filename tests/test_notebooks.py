@@ -50,7 +50,9 @@ def notebook_data(tmp_path, monkeypatch):
             }
         )
         if labeled:
-            label_rows.append({"spec_id": spec_id, "label": label, "confidence": 80})
+            label_rows.append(
+                {"spec_id": spec_id, "label": label, "confidence": 50 + index % 51}
+            )
 
     metadata = pd.DataFrame(rows)
     feature_data = pd.DataFrame(feature_rows)
@@ -278,3 +280,224 @@ def test_results_notebook_uses_common_available_holdout_offline(
     assert all(ids == holdout_ids["logistic_regression"] for ids in holdout_ids.values())
     guesses = namespace["prediction_frames"]["uniform_guess"]
     np.testing.assert_array_equal(guesses["y_prob"], np.full(len(guesses), 0.5))
+    assert namespace["SEED"] == 42
+    assert not set(namespace["train_repos"]) & set(namespace["test_repos"])
+    expected_confidence = dict(zip(
+        namespace["training_features"]["file_url_sha16"],
+        namespace["training_confidences"],
+    ))
+    for row in namespace["prediction_table"].itertuples():
+        assert row.labeler_confidence == expected_confidence[row.spec_id]
+        assert row.predicted_label_confidence == pytest.approx(
+            row.probability_label_1 if row.predicted_label else 1 - row.probability_label_1
+        )
+    for model_name, signal_name in [
+        ("naive_bayes", "nb_text_signals"),
+        ("markdown_plus_feature", "mixed_text_signals"),
+    ]:
+        model = namespace["models"][model_name]
+        terms = model.named_steps["preprocessor"].named_transformers_[
+            "markdown"
+        ].get_feature_names_out()
+        assert namespace[signal_name].index.tolist() == terms.tolist()
+    nb = namespace["models"]["naive_bayes"].named_steps["classifier"]
+    np.testing.assert_allclose(
+        namespace["nb_text_signals"].to_numpy(),
+        nb.feature_log_prob_[1] - nb.feature_log_prob_[0],
+    )
+    mixed = namespace["models"]["markdown_plus_feature"]
+    preprocessor = mixed.named_steps["preprocessor"]
+    np.testing.assert_allclose(
+        namespace["mixed_text_signals"].to_numpy(),
+        mixed.named_steps["classifier"].coef_[0][preprocessor.output_indices_["markdown"]],
+    )
+    assert namespace["mixed_numeric_coefficient"] == pytest.approx(
+        mixed.named_steps["classifier"].coef_[0][preprocessor.output_indices_["numeric"]][0]
+    )
+    repeated = namespace["repository_disjoint_split"](
+        namespace["training_features"],
+        namespace["training_labels"],
+        namespace["training_repositories"],
+        test_size=namespace["TEST_SIZE"],
+        seed=namespace["SEED"],
+    )
+    np.testing.assert_array_equal(repeated[0], namespace["train_indices"])
+    np.testing.assert_array_equal(repeated[1], namespace["test_indices"])
+    sample = namespace["prediction_frames"]["logistic_regression"]
+    bootstrap_arguments = (
+        sample["y_true"].to_numpy(dtype=int),
+        sample["y_pred"].to_numpy(dtype=int),
+        sample["y_prob"].to_numpy(dtype=float),
+        namespace["test_frame"][train.REPOSITORY_COLUMN].to_numpy(),
+    )
+    first = namespace["bootstrap_intervals"](
+        *bootstrap_arguments, replicates=20, seed=42
+    )
+    second = namespace["bootstrap_intervals"](
+        *bootstrap_arguments, replicates=20, seed=42
+    )
+    for metric in first:
+        np.testing.assert_allclose(first[metric], second[metric], equal_nan=True)
+
+
+def test_results_repository_plot_renders_bounded_notes_and_exports(tmp_path, monkeypatch):
+    import matplotlib.pyplot as plt
+
+    cells = notebook_sources("results.ipynb")
+    namespace = {}
+    with matplotlib.rc_context():
+        exec(cells[1], namespace)
+        namespace["FIGURE_DIR"] = tmp_path
+        namespace["binary_composition"] = pd.DataFrame(
+            {
+                namespace["REPOSITORY_COLUMN"]: [
+                    f"owner/a-very-long-repository-name-{index:04d}"
+                    for index in range(335)
+                ],
+                "label": [index % 2 for index in range(335)],
+            }
+        )
+        observed = []
+
+        def inspect_figure():
+            fig = plt.gcf()
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            for note in fig.texts:
+                assert "repository-name" not in note.get_text()
+                assert len(note.get_text()) < 160
+                assert all(
+                    note.get_window_extent(renderer).y1
+                    < ax.get_window_extent(renderer).y0
+                    for ax in fig.axes
+                )
+            observed.append(fig.get_size_inches())
+            plt.close(fig)
+
+        monkeypatch.setattr(plt, "show", inspect_figure)
+        exec(cells[5], namespace)
+        exec(cells[7], namespace)
+
+    assert namespace["repo_size_counts"].tolist() == [335, 0, 0, 0]
+    assert len(observed) == 2
+    assert all(width <= 8 and height <= 6 for width, height in observed)
+    for stem in ("dataset_label_counts", "repository_size_distribution"):
+        assert (tmp_path / f"{stem}.png").read_bytes().startswith(b"\x89PNG")
+        assert (tmp_path / f"{stem}.pdf").read_bytes().startswith(b"%PDF")
+    assert len(namespace["GENERATED_FIGURES"]) == 4
+
+
+def test_results_notebook_exports_all_supported_figures_offline(
+    notebook_data, tmp_path, monkeypatch
+):
+    import matplotlib.pyplot as plt
+
+    labels_path, _, _ = notebook_data
+    cells = notebook_sources("results.ipynb")
+    namespace = {}
+    seen_figures = []
+    with matplotlib.rc_context():
+        exec(cells[1], namespace)
+        namespace.update(
+            {
+                "LABELS_CSV": labels_path,
+                "FIGURE_DIR": tmp_path,
+                "DATA_DIR": tmp_path,
+                "LOCAL_DATA_ONLY": True,
+                "BOOTSTRAP_REPLICATES": 10,
+                "display": lambda *args, **kwargs: None,
+            }
+        )
+
+        def inspect_figure():
+            fig = plt.gcf()
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            for ax in fig.axes:
+                if ax.get_title() in {
+                    "ROC curves on the held-out test split",
+                    "Precision–recall curves on the held-out test split",
+                }:
+                    assert not ax.get_legend().get_window_extent(renderer).overlaps(
+                        ax.get_window_extent(renderer)
+                    )
+            for note in fig.texts:
+                # Suptitles are intentionally above the plot; sample notes are below.
+                if note.get_position()[1] < 0.1:
+                    assert len(note.get_text()) < 160
+                    assert all(
+                        note.get_window_extent(renderer).y1
+                        < ax.get_window_extent(renderer).y0
+                        for ax in fig.axes
+                        if ax.axison
+                    )
+            seen_figures.append(fig)
+            plt.close(fig)
+
+        monkeypatch.setattr(plt, "show", inspect_figure)
+        for cell in cells[2:]:
+            if cell is not None:
+                exec(cell, namespace)
+
+    stems = {
+        "dataset_label_counts", "repository_size_distribution", "split_class_balance",
+        "model_metric_comparison", "confusion_matrices", "roc_curves",
+        "precision_recall_curves", "labeler_confidence_distribution",
+        "model_score_distributions", "random_forest_top10_importances",
+        "logistic_regression_top10_coefficients", "naive_bayes_character_signals",
+        "markdown_plus_feature_character_signals",
+    }
+    assert len(seen_figures) == len(stems)
+    assert {path.name for path in namespace["GENERATED_FIGURES"]} == {
+        f"{stem}.{extension}" for stem in stems for extension in ("png", "pdf")
+    }
+    assert all(path.is_file() and path.stat().st_size > 1000
+               for path in namespace["GENERATED_FIGURES"])
+
+
+def test_results_curves_skip_single_class_holdout(tmp_path, capsys):
+    cells = notebook_sources("results.ipynb")
+    namespace = {}
+    with matplotlib.rc_context():
+        exec(cells[1], namespace)
+        namespace["FIGURE_DIR"] = tmp_path
+        namespace["test_frame"] = pd.DataFrame({"label": [1, 1, 1]})
+        exec(cells[19], namespace)
+        exec(cells[20], namespace)
+    output = capsys.readouterr().out
+    assert "ROC curves are undefined" in output
+    assert "Precision–recall curves are undefined" in output
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "labels, should_plot",
+    [
+        ([0] * 16 + [1] * 3, False),
+        ([0] * 15 + [1] * 4, False),
+        ([0] * 20, False),
+        ([0] * 20 + [1] * 4, True),
+    ],
+)
+def test_results_calibration_support_boundary(labels, should_plot, tmp_path, monkeypatch):
+    import matplotlib.pyplot as plt
+
+    cells = notebook_sources("results.ipynb")
+    namespace = {}
+    with matplotlib.rc_context():
+        exec(cells[1], namespace)
+        namespace["FIGURE_DIR"] = tmp_path
+        namespace["test_frame"] = pd.DataFrame(
+            {
+                "label": labels,
+                namespace["REPOSITORY_COLUMN"]: [f"repo-{i}" for i in range(len(labels))],
+            }
+        )
+        namespace["prediction_frames"] = {
+            name: pd.DataFrame({"y_true": labels, "y_prob": np.full(len(labels), 0.5)})
+            for name in namespace["MODEL_NAMES"]
+        }
+        monkeypatch.setattr(plt, "show", lambda: plt.close("all"))
+        exec(cells[23], namespace)
+    assert (tmp_path / "model_calibration_curves.png").exists() is should_plot
+    assert (tmp_path / "model_calibration_curves.pdf").exists() is should_plot

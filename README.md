@@ -113,8 +113,8 @@ selection. Fake-label spec IDs are resolved to repository IDs through the
 metadata parquet. The displayed feature table is content-based; commit history
 is not used for labeling or by the current training/evaluation workflow.
 
-`examples/fake_labels.csv` is the test fixture used by the training and results
-notebooks. It includes both `spec_id` and the corresponding `repo_id` for
+`examples/fake_labels.csv` is a test fixture that can be used by the training
+and results notebooks. It includes both `spec_id` and the corresponding `repo_id` for
 repository-level leakage checks. Its deterministic confidence values are test
 data, not verified assessments. Do not copy fake rows into the real-label file
 or interpret fake confidence values as reviewed assessments. Use
@@ -139,7 +139,7 @@ cached files are reused from `notebooks/data`.
 | `notebooks/data_init.ipynb` | Reuses or fills the cache, samples up to three specs from distinct repositories, writes `notebooks/data/spec_sample.csv`, and displays one unreviewed repository with its Markdown, properties, and features. Set `CURATED_ONLY`, `SPEC_SAMPLE_SIZE`, and `SEED` near the top. |
 | `notebooks/show_specs.ipynb` | Looks up all distinct specs for one or more `REPO_IDS`, or specific `SPEC_IDS` (list or comma-separated string). It reuses cached files and downloads only missing metadata, features, or requested Markdown. |
 | `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, `TEXT_FEATURE`, `PREDICTION_SAMPLE_SIZE`, and `LOCAL_DATA_ONLY` near the top. It saves models under `models/` and a uniquely named prediction CSV under `notebooks/`. |
-| `notebooks/results.ipynb` | Compares all five models on the same repository-disjoint holdout, saves tables and plots in the notebook, and writes figures under `notebooks/figures/`. Set `TEXT_FEATURE` or `LOCAL_DATA_ONLY` near the top. Its default fake labels measure agreement with test data, not verified authorship accuracy. |
+| `notebooks/results.ipynb` | Retrains and compares all five models on a shared, seeded repository-disjoint holdout. Displays figures and exports PNG and PDF files under `notebooks/figures/`. Configure `LABELS_CSV`, `SEED`, `TEXT_FEATURE`, or `LOCAL_DATA_ONLY` near the top. The default AI-assigned labels are not verified authorship. |
 
 For labeling, ambiguous evidence should be recorded with blank
 `label` and `confidence` fields. Nonblank labels must be `0` or `1`, and their
@@ -210,7 +210,7 @@ FinalProject-CS440/
 ├── README.md                    # Installation, workflows, and project guide
 ├── examples/
 │   ├── fake_labels.csv          # Test labels; not verified authorship data
-│   └── real_labels.csv          # Human-reviewed labels
+│   └── real_labels.csv          # Current AI-assigned labels
 ├── models/                      # Saved scikit-learn model pipelines
 ├── notebooks/
 │   ├── data_init.ipynb          # Combined sample and review workflow
@@ -308,15 +308,29 @@ matched rows after ID matching. Training reads the full metadata parquet to
 ensure labeled IDs are not lost to random sampling, then loads features only
 for labeled specs. Omit `--model-dir` to skip saving models.
 
-The results notebook reports predicted-class confidence as the larger of the
-two class probabilities, expressed from 0 to 100, alongside the probability
-that a spec is AI-assisted. The uniform guesser reports a probability of 0.5
-for each class and makes seeded random class guesses; its class predictions do
-not use the probability threshold.
+The results notebook separately visualizes the labeler's reported confidence
+(0–100) and each model's held-out probability of label 1 (0–1). Its
+`prediction_table` includes the probability assigned to the predicted class,
+alongside the original label confidence. Neither score is necessarily
+calibrated. The uniform guesser reports a probability of 0.5 for each class
+and makes seeded random class guesses; its predictions do not use the
+probability threshold.
 
-The training notebook defaults to `examples/fake_labels.csv` for testing.
-Manual labels should be added to `examples/real_labels.csv` in the labeling
-notebook; switch `LABELS_CSV` when training with that file. All IDs appearing
+The notebook also shows class and aggregate repository composition, test
+metrics with repository-cluster bootstrap intervals, confusion matrices,
+ROC/precision–recall curves, and model-specific training signals. Numeric
+coefficients and forest importances and the text models' character n-grams
+describe associations with the supplied labels, not causal evidence of AI use.
+Calibration and some curves are omitted when the held-out sample lacks
+adequate class support. Missing Markdown is excluded from all five models;
+the included sample may therefore differ from the original label file.
+Figures are saved as 300-dpi PNG and vector PDF files. Matching files are
+overwritten on rerun; inspect the current run's figures rather than assuming
+older files in the directory were regenerated.
+
+The training notebook defaults to `examples/real_labels.csv`; its current
+AI-assigned labels and confidence values are not verified ground truth.
+Choose `examples/fake_labels.csv` in `LABELS_CSV` for testing only. All IDs appearing
 in the selected CSV (including blank-label rows) are excluded from the
 extrapolation sample. Repeated rows for the same ID and label collapse to one
 row; conflicting labels for an ID are treated as blank/ambiguous and reported
