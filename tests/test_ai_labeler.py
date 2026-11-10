@@ -16,12 +16,18 @@ ROOT = Path(__file__).resolve().parents[1]
 def labeler(monkeypatch):
     module_name = "ai_labeler_under_test"
     spec = importlib.util.spec_from_file_location(
-        module_name, ROOT / "notebooks" / "ai-labeler.py"
+        module_name, ROOT / "src" / "ai-labeler.py"
     )
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, module_name, module)
     spec.loader.exec_module(module)
     return module
+
+
+def test_labeler_default_data_directory(labeler):
+    from specmine.data import DEFAULT_LOCAL_DATA_DIR
+
+    assert labeler.DEFAULT_DATA_DIR == ROOT / "data" == DEFAULT_LOCAL_DATA_DIR
 
 
 class FakeAPIError(Exception):

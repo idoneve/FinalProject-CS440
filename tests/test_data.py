@@ -122,6 +122,11 @@ def patched_parquet(monkeypatch, fake_parquet_df, tmp_path):
     monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
 
 
+def test_default_data_directory_is_at_repository_root():
+    assert sm.DEFAULT_LOCAL_DATA_DIR == Path(__file__).resolve().parents[1] / "data"
+    assert sm.DATA_DIR == sm.DEFAULT_LOCAL_DATA_DIR
+
+
 class TestLoadFeatureData:
     @pytest.fixture(autouse=True)
     def clear_feature_table_cache(self):

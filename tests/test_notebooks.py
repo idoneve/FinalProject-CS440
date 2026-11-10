@@ -179,6 +179,67 @@ def test_show_specs_notebook_uses_a_complete_spec_id():
 
 
 @pytest.mark.parametrize(
+    "notebook", ["data_init.ipynb", "show_specs.ipynb", "predict.ipynb", "results.ipynb"]
+)
+def test_notebook_default_paths_point_to_root_data(notebook, monkeypatch):
+    monkeypatch.chdir(ROOT / "notebooks")
+    namespace = {}
+    with matplotlib.rc_context():
+        exec(notebook_sources(notebook)[1], namespace)
+    assert namespace["DATA_DIR"] == ROOT / "data"
+    if "REAL_LABELS_CSV" in namespace:
+        assert namespace["REAL_LABELS_CSV"] == ROOT / "data/labeled_data/real_labels.csv"
+        assert namespace["FAKE_LABELS_CSV"] == ROOT / "data/labeled_data/fake_labels.csv"
+    if "LABELS_CSV" in namespace:
+        assert namespace["LABELS_CSV"] == ROOT / "data/labeled_data/real_labels.csv"
+    if "MODEL_DIR" in namespace:
+        assert namespace["MODEL_DIR"] == ROOT / "data/models"
+
+
+def test_show_specs_notebook_runs_with_root_cache(monkeypatch, tmp_path):
+    spec_id = "4063ec9b808116cb"
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# Cached spec\n", encoding="utf-8")
+    metadata = pd.DataFrame(
+        [{
+            "repo_id": 123,
+            "repo_name": "owner/repo",
+            "file_url_sha16": spec_id,
+            "file_path": "spec.md",
+            "file_url": "https://github.com/owner/repo/blob/main/spec.md",
+        }]
+    )
+    expected_cache = ROOT / "data"
+    calls = []
+
+    def fake_load_data(*, data_dir):
+        calls.append(data_dir)
+        return metadata.copy()
+
+    def fake_load_features(ids, *, data_dir):
+        calls.append(data_dir)
+        return pd.DataFrame({"file_url_sha16": ids["file_url_sha16"], "n_lines": [1]})
+
+    def fake_download(selected, *, data_dir):
+        calls.append(data_dir)
+        return selected.assign(local_path=str(spec_path))
+
+    monkeypatch.setattr(data, "load_data", fake_load_data)
+    monkeypatch.setattr(data, "load_feature_data", fake_load_features)
+    monkeypatch.setattr(data, "download_spec_files", fake_download)
+    monkeypatch.chdir(ROOT)
+    cells = notebook_sources("show_specs.ipynb")
+    namespace = {}
+    exec(cells[1], namespace)
+    namespace["display"] = lambda *args: None
+    for cell in cells[2:]:
+        if cell is not None:
+            exec(cell, namespace)
+    assert calls == [expected_cache] * 3
+    assert namespace["spec_details"]["file_url_sha16"].tolist() == [spec_id]
+
+
+@pytest.mark.parametrize(
     "model_name",
     [
         "logistic_regression",

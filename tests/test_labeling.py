@@ -136,7 +136,7 @@ def test_feature_match_rejects_missing_or_duplicated_feature_rows(
 
 
 def test_real_label_template_keeps_training_columns_and_repo_identity():
-    labels_path = Path(__file__).resolve().parents[1] / "examples" / "real_labels.csv"
+    labels_path = Path(__file__).resolve().parents[1] / "data" / "labeled_data" / "real_labels.csv"
     labels = read_labels_csv(labels_path)
 
     assert not labels.empty
@@ -146,7 +146,7 @@ def test_real_label_template_keeps_training_columns_and_repo_identity():
 
 
 def test_fake_label_fixture_has_repo_ids_and_preserves_duplicate_rows():
-    labels_path = Path(__file__).resolve().parents[1] / "examples" / "fake_labels.csv"
+    labels_path = Path(__file__).resolve().parents[1] / "data" / "labeled_data" / "fake_labels.csv"
     labels = pd.read_csv(labels_path, dtype={"spec_id": "string"})
     duplicate_id = "c8fa12389f12500c"
 

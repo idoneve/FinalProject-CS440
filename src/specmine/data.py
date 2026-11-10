@@ -27,9 +27,7 @@ PARQUET_URL = "hf://datasets/ShyAgarwal/specmine/data/spec_files.parquet"
 FEATURES_PARQUET_URL = (
     "hf://datasets/ShyAgarwal/specmine/data/spec_content_features.parquet"
 )
-DEFAULT_LOCAL_DATA_DIR = (
-    Path(__file__).resolve().parents[2] / "notebooks" / "data"
-)
+DEFAULT_LOCAL_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 DATA_DIR = DEFAULT_LOCAL_DATA_DIR
 DATASET_REPO_ID = "ShyAgarwal/specmine"
 PARQUET_FILENAMES = ("spec_files.parquet", "spec_content_features.parquet")
@@ -652,7 +650,7 @@ def load_feature_data(
         local_data_only: Require a cached parquet without contacting Hugging
             Face. By default, an existing local parquet is reused and a missing
             one is downloaded into the cache.
-        data_dir: Cache directory; defaults to ``notebooks/data`` in this repo.
+        data_dir: Cache directory; defaults to ``data`` in this repo.
     """
     cache_dir = (
         str(Path(data_dir).resolve()) if data_dir is not None else None
@@ -791,7 +789,7 @@ def load_data(
       metadata parquet is cached before sampling when the cache is missing.
     - seed: random seed for sampling (both modes).
     - data_dir: cache root for parquet and raw spec files; defaults to
-      notebooks/data in this repository.
+      data in this repository.
     - local_data_only: require the local metadata parquet and never fall back
       to the network. By default, missing required parquets are downloaded from
       Hugging Face and saved in the cache.

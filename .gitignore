@@ -1,5 +1,7 @@
 # Data
-data/
+/data/*
+!/data/labeled_data/
+/notebooks/data/
 *.parquet
 
 # Python
