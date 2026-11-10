@@ -1,7 +1,7 @@
 """Evaluate a SpecMine classifier.
 
 Example:
-    python -m specmine.evaluate --model-path models/specmine.joblib \\
+    python -m specmine.evaluate --model-path data/models/specmine.joblib \\
         --labels-csv labels.csv --split test --output-json metrics.json
 """
 

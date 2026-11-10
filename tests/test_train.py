@@ -577,7 +577,7 @@ def test_prepare_training_data_rejects_unknown_labeled_ids():
 
 def test_fake_labels_csv_is_parseable_and_collapses_duplicate_ids():
     labels_path = (
-        Path(__file__).resolve().parents[1] / "examples" / "fake_labels.csv"
+        Path(__file__).resolve().parents[1] / "data" / "labeled_data" / "fake_labels.csv"
     )
 
     labels = train.read_labels_csv(labels_path)

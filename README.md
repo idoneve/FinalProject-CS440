@@ -35,14 +35,14 @@ python -c 'from specmine.data import load_data; df = load_data(sample_size=5, se
 
 The default call reads `spec_files.parquet` from the local cache when present;
 otherwise it downloads that parquet from Hugging Face into
-`notebooks/data/data/`. `sample_size` limits the returned DataFrame but does not
+`data/data/`. `sample_size` limits the returned DataFrame but does not
 reduce the first download or the memory needed to read the full metadata
 parquet. `data_dir=...` changes the cache root.
 
 Use `curated_only=True` to load the curated repositories. The filtered metadata
 is saved as `curated_spec_files.parquet` and reused on later calls, so the full
 metadata parquet is not scanned again. Raw Markdown is downloaded to the cache
-root and reused; `sample_size` limits the selected rows/files. With no
+root's `spec_files/` subdirectory and reused; `sample_size` limits the selected rows/files. With no
 `sample_size`, all curated rows are selected. To load curated metadata without
 downloading Markdown, set `download_raw_specs=False` and pass the metadata to
 `download_random_spec_sample` or `download_spec_files`:
@@ -52,14 +52,14 @@ from specmine.data import download_random_spec_sample, load_data
 
 metadata = load_data(
     curated_only=True,
-    data_dir="notebooks/data",
+    data_dir="data",
     download_raw_specs=False,
 )
 sample = download_random_spec_sample(
     metadata,
     sample_size=3,
     seed=0,
-    data_dir="notebooks/data",
+    data_dir="data",
 )
 ```
 
@@ -67,14 +67,14 @@ sample = download_random_spec_sample(
 curated repositories and samples up to `SPEC_SAMPLE_SIZE` (3 by default), with
 at most one spec per repository. Set it to `False` to sample from the full
 metadata table. Parquets and Markdown files are cache-first: existing files are
-reused and missing files are downloaded into `notebooks/data/`. The notebook
+reused and missing files are downloaded into `data/`. The notebook
 chooses an unreviewed repository from the sample and displays its Markdown,
 exact feature row, and metadata. Repeated spec IDs and repositories are
 excluded; failed downloads are replaced with candidates from other
 repositories. The first run and each newly selected, uncached spec may require
 network access; rerunning the same seeded sample reuses its local files. Change
 `SPEC_SAMPLE_SIZE` or `SEED` near the top of the notebook. The sample manifest
-is saved as `notebooks/data/spec_sample.csv`.
+is saved as `data/spec_sample.csv`.
 
 Normal `load_data` and `load_feature_data` calls also use the local cache first
 and download only a missing required parquet from Hugging Face. For explicitly
@@ -87,7 +87,7 @@ metadata = load_data(local_data_only=True)
 features = load_feature_data(local_data_only=True)
 ```
 
-Local-only loading looks under this repository's `notebooks/data/data/`; pass
+Local-only loading looks under this repository's `data/data/`; pass
 `data_dir=...` to use a different cache root. If a parquet file is missing,
 local-only mode raises `FileNotFoundError` and never falls back to the network.
 `curated_only=True` is cache-first rather than a strict no-network option: it
@@ -101,7 +101,7 @@ requested Markdown are downloaded into the data directory. Markdown is shown
 as escaped text so remote images and embedded HTML are not rendered. The raw
 spec downloader accepts only HTTPS URLs on `github.com` and
 `raw.githubusercontent.com` and validates every redirect before following it.
-Record one reviewed row in `examples/real_labels.csv` using
+Record one reviewed row in `data/labeled_data/real_labels.csv` using
 `repo_id,spec_id,label,confidence`. `repo_id` identifies the repository for
 leakage prevention; `spec_id` identifies the exact spec and remains the model
 feature join key. Use `1` if AI was used at any point, `0` if it was not, and
@@ -113,8 +113,8 @@ selection. Fake-label spec IDs are resolved to repository IDs through the
 metadata parquet. The displayed feature table is content-based; commit history
 is not used for labeling or by the current training/evaluation workflow.
 
-`examples/fake_labels.csv` is the test fixture used by the training and results
-notebooks. It includes both `spec_id` and the corresponding `repo_id` for
+`data/labeled_data/fake_labels.csv` is a test fixture that can be used by the training
+and results notebooks. It includes both `spec_id` and the corresponding `repo_id` for
 repository-level leakage checks. Its deterministic confidence values are test
 data, not verified assessments. Do not copy fake rows into the real-label file
 or interpret fake confidence values as reviewed assessments. Use
@@ -132,14 +132,14 @@ temporary-file write, so concurrent runs do not overwrite one another.
 Open notebooks from the repository and run their code cells from top to
 bottom. All notebooks use the same cache-first loaders. An internet connection
 is needed only when a required parquet or selected Markdown file is missing;
-cached files are reused from `notebooks/data`.
+cached files are reused from `data`.
 
 | Notebook | Purpose and how to use it |
 | --- | --- |
-| `notebooks/data_init.ipynb` | Reuses or fills the cache, samples up to three specs from distinct repositories, writes `notebooks/data/spec_sample.csv`, and displays one unreviewed repository with its Markdown, properties, and features. Set `CURATED_ONLY`, `SPEC_SAMPLE_SIZE`, and `SEED` near the top. |
+| `notebooks/data_init.ipynb` | Reuses or fills the cache, samples up to three specs from distinct repositories, writes `data/spec_sample.csv`, and displays one unreviewed repository with its Markdown, properties, and features. Set `CURATED_ONLY`, `SPEC_SAMPLE_SIZE`, and `SEED` near the top. |
 | `notebooks/show_specs.ipynb` | Looks up all distinct specs for one or more `REPO_IDS`, or specific `SPEC_IDS` (list or comma-separated string). It reuses cached files and downloads only missing metadata, features, or requested Markdown. |
-| `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, `TEXT_FEATURE`, `PREDICTION_SAMPLE_SIZE`, and `LOCAL_DATA_ONLY` near the top. It saves models under `models/` and a uniquely named prediction CSV under `notebooks/`. |
-| `notebooks/results.ipynb` | Compares all five models on the same repository-disjoint holdout, saves tables and plots in the notebook, and writes figures under `notebooks/figures/`. Set `TEXT_FEATURE` or `LOCAL_DATA_ONLY` near the top. Its default fake labels measure agreement with test data, not verified authorship accuracy. |
+| `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, `TEXT_FEATURE`, `PREDICTION_SAMPLE_SIZE`, and `LOCAL_DATA_ONLY` near the top. It saves models under `data/models/` and a uniquely named prediction CSV under `notebooks/`. |
+| `notebooks/results.ipynb` | Retrains and compares all five models on a shared, seeded repository-disjoint holdout. Displays figures and publishes PNG and PDF files in a unique run directory under `notebooks/figures/` in its final cell. Configure `LABELS_CSV`, `SEED`, `TEXT_FEATURE`, or `LOCAL_DATA_ONLY` near the top. The default AI-assigned labels are not verified authorship. |
 
 For labeling, ambiguous evidence should be recorded with blank
 `label` and `confidence` fields. Nonblank labels must be `0` or `1`, and their
@@ -153,7 +153,8 @@ to review.
 ## Gemini-Assisted Spec Labeling
 
 The optional labeler analyzes the Markdown files already cached in
-`notebooks/data`; it does not download additional specs or metadata. Install the
+`data/spec_files/`; it also recognizes files in the old cache root. It does
+not download additional specs or metadata. Install the
 labeling extra:
 
 ```bash
@@ -178,18 +179,18 @@ source code. Each request can consume API quota or incur charges.
 Run the following command to analyze all cached Markdown files:
 
 ```bash
-python notebooks/ai-labeler.py
+python src/specmine/ai-labeler.py
 ```
 
 To try only particular files first, repeat `--spec-id` with their 16-character
 SpecMine IDs:
 
 ```bash
-python notebooks/ai-labeler.py --spec-id 0123456789abcdef \
+python src/specmine/ai-labeler.py --spec-id 0123456789abcdef \
   --spec-id fedcba9876543210
 ```
 
-Results are appended to `notebooks/data/ai_analysis_results.csv` with columns
+Results are appended to `data/ai_analysis_results.csv` with columns
 `repo_id,spec_id,label,confidence,reasoning`. Existing valid spec results are
 reused on subsequent runs, including when multiple specs belong to the same
 repository. Errors are reported and produce a nonzero exit status; unsuccessful
@@ -209,55 +210,72 @@ calibrated probability. Review the results before using them as training data.
 FinalProject-CS440/
 ├── .gitignore                   # Excludes local data, models, and generated files
 ├── README.md                    # Installation, workflows, and project guide
-├── DATA_DICTIONARY.md           # SpecMine dataset and feature reference
-├── LICENSE
-├── LICENSE-DATA
-├── pyproject.toml               # Package metadata and development dependencies
-├── requirements.txt             # Runtime dependency list
-├── schema.sql                   # Database schema reference
-├── examples/
-│   ├── fake_labels.csv          # Test labels; not verified authorship data
-│   └── real_labels.csv          # Human-reviewed labels
-├── models/                      # Generated model pipelines (created on demand)
+├── data/                        # Shared local cache and outputs
+│   ├── data/                    # Cached dataset parquets
+│   ├── spec_files/              # Downloaded Markdown specs
+│   ├── labeled_data/
+│   │   ├── fake_labels.csv      # Test labels; not verified authorship data
+│   │   └── real_labels.csv      # Current AI-assigned labels
+│   └── models/                  # Saved scikit-learn model pipelines
 ├── notebooks/
 │   ├── ai-labeler.py            # Optional Gemini-assisted labeling CLI
 │   ├── data_init.ipynb          # Combined sample and review workflow
 │   ├── show_specs.ipynb         # Inspect specs by repo or spec ID
 │   ├── predict.ipynb            # Train, evaluate, and predict
 │   ├── results.ipynb            # Evaluation summaries and plots
-│   ├── figures/                 # Evaluation plots
-│   ├── data/                    # Local cache, created on demand
-│   │   ├── data/                # Dataset parquets and curated metadata
-│   │   └── spec_sample.csv      # Sample manifest from data_init.ipynb
-│   └── unlabeled_predictions*.csv # Generated prediction outputs
-├── src/specmine/                # Installable Python package
-│   ├── __init__.py
-│   ├── data.py                  # Dataset loading, caching, and downloads
-│   ├── evaluate.py              # Model evaluation and prediction outputs
-│   ├── features.py              # Feature preparation
-│   ├── labeling.py              # Leakage-safe review selection and matching
-│   ├── labels.py                # Label CSV parsing and validation
-│   └── train.py                 # Training and repository-disjoint splitting
-└── tests/                       # Unit tests and opt-in network tests
-    ├── test_ai_labeler.py
-    ├── test_data.py
-    ├── test_evaluate.py
-    ├── test_features.py
-    ├── test_labeling.py
-    ├── test_notebooks.py
-    └── test_train.py
+│   └── figures/                 # Generated result plots
+├── src/
+│   └── specmine/
+│       ├── ai-labeler.py        # Optional Gemini-assisted labeler
+│       ├── data.py              # Dataset loading, caching, and downloads
+│       ├── features.py          # Feature preparation
+│       ├── labeling.py          # Leakage-safe review selection and matching
+│       ├── labels.py            # Label CSV parsing and validation
+│       ├── train.py             # Training and repository-disjoint splitting
+│       └── evaluate.py          # Model evaluation and prediction outputs
+├── tests/                       # Offline unit tests and opt-in network tests
+├── DATA_DICTIONARY.md           # SpecMine dataset and feature reference
+├── schema.sql                   # Database schema reference
+├── pyproject.toml               # Package metadata and development dependencies
+├── requirements.txt             # Runtime dependency list
+├── LICENSE
+└── LICENSE-DATA
 ```
 
-The default cache root is `notebooks/data/`. Dataset parquet files and the
-curated metadata subset are stored in `notebooks/data/data/`; downloaded
-Markdown and generated manifests are stored at the cache root. These files,
-the root `models/` directory, and prediction outputs are created locally when
-the relevant workflows run and are excluded from version control. Cache-first
-loaders reuse existing files and download only missing required files.
-Downloaded Markdown filenames use `repo_name-repo_id-spec_id.md` (with `/` in
-the repository name replaced by `_`) so the repository identity is retained in
-the filename. Remove a cached file when you intentionally want to fetch it
-again.
+The parquet cache, curated metadata subset, downloaded Markdown, sample
+manifest, and generated plots are local workflow data. Cache-first loaders
+reuse existing files and download only missing required files. Downloaded
+Markdown filenames use `repo_name-repo_id-spec_id.md` (with `/` in the
+repository name replaced by `_`) so the repository identity is retained in the
+filename. Remove a cached file when you intentionally want to fetch it again;
+other notebooks may create prediction CSVs and model files when run.
+
+### Migrating an older local cache
+
+The cache and saved models were previously stored in `notebooks/data/` and
+`models/`. After updating, copy their contents into the new locations without
+overwriting existing files:
+
+```bash
+python -m specmine.migrate_cache notebooks/data data  # if notebooks/data exists
+python -m specmine.migrate_cache models data/models   # if models exists
+```
+
+Skip either command if its source does not exist. Each file is copied to a
+temporary file and published only after the copy completes. Identical destination
+files are retained; a differing file, including a partial copy from an earlier
+migration, causes an error. Compare and move the conflicting destination aside
+before retrying. Check the copied files before removing the old directories.
+Existing sample manifests may contain old
+absolute paths; rerun `data_init.ipynb` to generate a fresh manifest.
+The label CSVs now live in `data/labeled_data/`; preserve and reconcile any
+local edits to the old `examples/` files before switching.
+
+New Markdown downloads go into `data/spec_files/`. For existing caches, the
+loaders and labeler also read Markdown from the cache root, so those files can
+be moved to `data/spec_files/` without downloading them again. Avoid creating
+duplicate copies: the labeler reports duplicate spec IDs instead of choosing
+between them.
 
 ## Training Baselines
 
@@ -287,7 +305,7 @@ data.
 ```bash
 python -m specmine.train --labels-csv labels.csv --seed 42 \
   --local-data-only \
-  --model-dir models/baselines
+  --model-dir data/models/baselines
 ```
 
 For a comparison including the new models:
@@ -295,7 +313,7 @@ For a comparison including the new models:
 ```bash
 python -m specmine.train --labels-csv labels.csv --seed 42 \
   --models logistic_regression random_forest naive_bayes uniform_guess markdown_plus_feature \
-  --text-feature n_words --model-dir models/baselines
+  --text-feature n_words --model-dir data/models/baselines
 ```
 
 Selecting a text model loads Markdown for the matched labeled specs, reusing
@@ -324,15 +342,37 @@ matched rows after ID matching. Training reads the full metadata parquet to
 ensure labeled IDs are not lost to random sampling, then loads features only
 for labeled specs. Omit `--model-dir` to skip saving models.
 
-The results notebook reports predicted-class confidence as the larger of the
-two class probabilities, expressed from 0 to 100, alongside the probability
-that a spec is AI-assisted. The uniform guesser reports a probability of 0.5
-for each class and makes seeded random class guesses; its class predictions do
-not use the probability threshold.
+The results notebook separately visualizes the labeler's reported confidence
+(0–100) and each model's held-out probability of label 1 (0–1). Its
+`prediction_table` includes the probability assigned to the predicted class,
+alongside the original label confidence. Neither score is necessarily
+calibrated. The uniform guesser reports a probability of 0.5 for each class
+and makes seeded random class guesses; its predictions do not use the
+probability threshold.
 
-The training notebook defaults to `examples/fake_labels.csv` for testing.
-Manual labels should be added to `examples/real_labels.csv` in the labeling
-notebook; switch `LABELS_CSV` when training with that file. All IDs appearing
+The notebook also shows class and aggregate repository composition, test
+metrics with repository-cluster bootstrap intervals, confusion matrices,
+ROC/precision–recall curves, and model-specific training signals. Numeric
+coefficients and forest importances and the text models' character n-grams
+describe associations with the supplied labels, not causal evidence of AI use.
+Calibration and some curves are omitted when the held-out sample lacks
+adequate class support. Missing Markdown is excluded from all five models;
+the included sample may therefore differ from the original label file.
+Figures are staged during execution and published together as 300-dpi PNG and
+vector PDF files in a unique `notebooks/figures/run-<id>/` directory when the
+final cell succeeds. Concurrent runs do not overwrite one another. Interrupted
+`.staging-*` directories are unpublished and may be removed after the run has
+stopped. Older figures in the parent directory are not part of the new run.
+
+A separate incremental SGD logistic diagnostic plots training log loss by
+epoch; it is not the fitted baseline. An exploratory three-fold,
+repository-grouped cross-validation plot compares numeric logistic regression
+`C` values using training data only. It does not tune the evaluated holdout
+models, and is omitted if the folds lack sufficient class support.
+
+The training notebook defaults to `data/labeled_data/real_labels.csv`; its current
+AI-assigned labels and confidence values are not verified ground truth.
+Choose `data/labeled_data/fake_labels.csv` in `LABELS_CSV` for testing only. All IDs appearing
 in the selected CSV (including blank-label rows) are excluded from the
 extrapolation sample. Repeated rows for the same ID and label collapse to one
 row; conflicting labels for an ID are treated as blank/ambiguous and reported
@@ -357,7 +397,7 @@ fedcba9876543210,0,75
 Save a fitted sklearn pipeline with `joblib`, then evaluate a split:
 
 ```bash
-python -m specmine.evaluate --model-path models/specmine.joblib \
+python -m specmine.evaluate --model-path data/models/specmine.joblib \
   --labels-csv labels.csv --split test --local-data-only \
   --output-json metrics.json --output-csv predictions.csv
 ```
@@ -370,7 +410,7 @@ and excluded, and the JSON report includes `n_unavailable_markdown`.
 `--split` accepts `train`, `test`, or `all`; use
 `--make-val --split val` to deterministically carve a validation split out of
 train. CSV metadata is escaped when it begins with a spreadsheet formula
-prefix. Curated downloads use `--data-dir` (default `notebooks/data`).
+prefix. Curated downloads use `--data-dir` (default `data`).
 
 Run the local tests with:
 

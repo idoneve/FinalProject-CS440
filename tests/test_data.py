@@ -122,6 +122,11 @@ def patched_parquet(monkeypatch, fake_parquet_df, tmp_path):
     monkeypatch.setattr(sm.pd, "read_parquet", fake_read_parquet)
 
 
+def test_default_data_directory_is_at_repository_root():
+    assert sm.DEFAULT_LOCAL_DATA_DIR == Path(__file__).resolve().parents[1] / "data"
+    assert sm.DATA_DIR == sm.DEFAULT_LOCAL_DATA_DIR
+
+
 class TestLoadFeatureData:
     @pytest.fixture(autouse=True)
     def clear_feature_table_cache(self):
@@ -316,7 +321,7 @@ class TestDownloadSpecFiles:
 
         assert len(result) == len(fake_parquet_df)
         assert set(result["repo_name"]) == set(fake_parquet_df["repo_name"])
-        assert all(Path(path).parent == data_dir for path in result["local_path"])
+        assert all(Path(path).parent == data_dir / "spec_files" for path in result["local_path"])
         assert all(Path(path).is_file() for path in result["local_path"])
         assert len(fake_raw_response) == len(fake_parquet_df)
 
@@ -354,6 +359,35 @@ class TestDownloadSpecFiles:
 
 
 class TestLoadSpecMarkdown:
+    @pytest.mark.parametrize("old_name", [False, True])
+    def test_reuses_preexisting_root_cache_without_network(
+        self, fake_parquet_df, monkeypatch, tmp_path, old_name
+    ):
+        metadata = fake_parquet_df.iloc[:1].copy()
+        row = metadata.iloc[0]
+        path = (
+            sm._legacy_spec_local_path(row, tmp_path)
+            if old_name
+            else tmp_path / sm._spec_local_path(row, tmp_path).name
+        )
+        path.write_text("# existing\n", encoding="utf-8")
+        monkeypatch.setattr(
+            sm.requests, "get",
+            lambda *args, **kwargs: pytest.fail("cached Markdown must not be downloaded"),
+        )
+        for local_only in (True, False):
+            result = sm.load_spec_markdown(metadata, local_data_only=local_only, data_dir=tmp_path)
+            assert result[sm.MARKDOWN_COLUMN].tolist() == ["# existing\n"]
+
+    def test_reuses_legacy_filename_inside_spec_files(self, fake_parquet_df, tmp_path):
+        metadata = fake_parquet_df.iloc[:1].copy()
+        spec_dir = tmp_path / "spec_files"
+        spec_dir.mkdir()
+        path = spec_dir / sm._legacy_spec_local_path(metadata.iloc[0], tmp_path).name
+        path.write_text("# legacy\n", encoding="utf-8")
+        result = sm.load_spec_markdown(metadata, local_data_only=True, data_dir=tmp_path)
+        assert result[sm.MARKDOWN_COLUMN].tolist() == ["# legacy\n"]
+
     def test_downloads_and_reuses_complete_markdown(
         self, fake_parquet_df, fake_raw_response, tmp_path
     ):
@@ -407,6 +441,7 @@ class TestLoadSpecMarkdown:
     ):
         metadata = fake_parquet_df.iloc[:3].copy()
         metadata["file_url_sha16"] = ["cached", "invalid", "missing"]
+        (tmp_path / "spec_files").mkdir()
         sm._spec_local_path(metadata.iloc[0], tmp_path).write_text(
             "# cached\n", encoding="utf-8"
         )
@@ -626,6 +661,7 @@ class TestDownloadRandomSpecSample:
         metadata["file_path"] = [f"{spec_id}.md" for spec_id in metadata["file_url_sha16"]]
         metadata["file_sha"] = metadata["file_url_sha16"]
         cached_rows = metadata.iloc[[1, 2]]
+        (tmp_path / "spec_files").mkdir()
         modern_path = sm._spec_local_path(cached_rows.iloc[0], tmp_path)
         modern_path.write_text("# cached spec\n")
         legacy_path = sm._legacy_spec_local_path(cached_rows.iloc[1], tmp_path)
@@ -908,7 +944,7 @@ class TestLoadDataCurated:
         df = sm.load_data(curated_only=True, data_dir=data_dir)
 
         assert df is not None and len(df) == 4
-        assert all(Path(path).parent == data_dir for path in df["local_path"])
+        assert all(Path(path).parent == data_dir / "spec_files" for path in df["local_path"])
 
     def test_filters_to_curated_repos_only(
         self, patched_parquet, fake_raw_response, tmp_path, monkeypatch

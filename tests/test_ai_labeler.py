@@ -16,12 +16,18 @@ ROOT = Path(__file__).resolve().parents[1]
 def labeler(monkeypatch):
     module_name = "ai_labeler_under_test"
     spec = importlib.util.spec_from_file_location(
-        module_name, ROOT / "notebooks" / "ai-labeler.py"
+        module_name, ROOT / "src" / "specmine" / "ai-labeler.py"
     )
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, module_name, module)
     spec.loader.exec_module(module)
     return module
+
+
+def test_labeler_default_data_directory(labeler):
+    from specmine.data import DEFAULT_LOCAL_DATA_DIR
+
+    assert labeler.DEFAULT_DATA_DIR == ROOT / "data" == DEFAULT_LOCAL_DATA_DIR
 
 
 class FakeAPIError(Exception):
@@ -67,9 +73,31 @@ def install_fake_client(monkeypatch, labeler, responses):
 
 
 def write_spec(data_dir, repo_name, repo_id, spec_id, content):
-    path = data_dir / f"{repo_name}-{repo_id}-{spec_id}.md"
+    spec_dir = data_dir / "spec_files"
+    spec_dir.mkdir(exist_ok=True)
+    path = spec_dir / f"{repo_name}-{repo_id}-{spec_id}.md"
     path.write_bytes(content.encode("utf-8"))
     return path
+
+
+def test_discover_specs_supports_new_and_legacy_locations(labeler, tmp_path):
+    new_path = write_spec(tmp_path, "owner_repo", "1", "0000000000000001", "# new\n")
+    old_path = tmp_path / "owner_repo-2-0000000000000002.md"
+    old_path.write_text("# old\n", encoding="utf-8")
+    specs, problems = labeler.discover_specs(tmp_path, [])
+    assert not problems
+    assert {spec.path for spec in specs} == {new_path, old_path}
+
+
+def test_discover_specs_rejects_duplicate_ids_across_locations(labeler, tmp_path):
+    spec_id = "0000000000000001"
+    new_path = write_spec(tmp_path, "owner_repo", "1", spec_id, "# new\n")
+    old_path = tmp_path / new_path.name
+    old_path.write_text("# old\n", encoding="utf-8")
+    specs, problems = labeler.discover_specs(tmp_path, [])
+    assert not specs
+    assert len(problems) == 1
+    assert str(new_path) in problems[0] and str(old_path) in problems[0]
 
 
 def write_results(path, rows):
