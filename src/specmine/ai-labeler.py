@@ -17,9 +17,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence, TypedDict
 
+from specmine.data import DEFAULT_LOCAL_DATA_DIR, SPEC_FILES_DIRNAME
 from specmine.evaluate import escape_spreadsheet_formula
 
-DEFAULT_DATA_DIR = Path(__file__).resolve().parent / "data"
+DEFAULT_DATA_DIR = DEFAULT_LOCAL_DATA_DIR
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 OUTPUT_FILENAME = "ai_analysis_results.csv"
 OUTPUT_COLUMNS = ("repo_id", "spec_id", "label", "confidence", "reasoning")
@@ -102,7 +103,17 @@ def discover_specs(
 
     problems = []
     grouped: dict[str, list[CachedSpec]] = defaultdict(list)
-    for path in sorted(data_dir.iterdir(), key=lambda entry: entry.name):
+    spec_dir = data_dir / SPEC_FILES_DIRNAME
+    directories = [data_dir]
+    if spec_dir.exists():
+        if not spec_dir.is_dir():
+            raise LabelerError(f"Spec files path is not a directory: {spec_dir}")
+        directories.insert(0, spec_dir)
+    paths = sorted(
+        (path for directory in directories for path in directory.iterdir()),
+        key=lambda entry: str(entry),
+    )
+    for path in paths:
         if path.suffix.lower() != ".md":
             continue
         if path.is_symlink():
@@ -133,8 +144,8 @@ def discover_specs(
         if requested and spec_id not in requested:
             continue
         if len(matches) != 1:
-            paths = ", ".join(spec.path.name for spec in matches)
-            problems.append(f"Multiple cached files have spec ID {spec_id}: {paths}")
+            duplicate_paths = ", ".join(str(spec.path) for spec in matches)
+            problems.append(f"Multiple cached files have spec ID {spec_id}: {duplicate_paths}")
             continue
         specs.append(matches[0])
 
@@ -441,7 +452,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--data-dir",
         type=Path,
         default=DEFAULT_DATA_DIR,
-        help="Directory containing cached spec Markdown (default: notebooks/data).",
+        help="Cache root containing spec_files/ (default: data/).",
     )
     parser.add_argument(
         "--output",

@@ -1,9 +1,11 @@
 # Data
-data/
+/data/*
+!/data/labeled_data/
+/notebooks/data/
 *.parquet
 
 # Python
-__pycache__/
+*/__pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
@@ -14,6 +16,8 @@ tempCodeRunnerFile.py
 # Notebooks
 .ipynb_checkpoints/
 notebooks/*predictions*.csv
+notebooks/figures/run-*/
+notebooks/figures/.staging-*/
 
 # Trained models
 models/
