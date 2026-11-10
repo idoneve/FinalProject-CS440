@@ -257,7 +257,7 @@ def _attach_labels(df: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     result["_spec_id_join"] = result[ID_COLUMN].astype("string")
     result = result.merge(
-        labels,
+        labels[["spec_id", LABEL_COLUMN, "confidence"]],
         how="left",
         left_on="_spec_id_join",
         right_on="spec_id",

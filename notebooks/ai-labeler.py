@@ -120,11 +120,11 @@ def discover_specs(
         spec = CachedSpec(
             path=path,
             repo_id=_normalize_repo_id(match.group("repo_id")),
-            spec_id=match.group("spec_id"),
+            spec_id=match.group("spec_id").lower(),
         )
         grouped[spec.spec_id].append(spec)
 
-    requested = set(requested_ids)
+    requested = {spec_id.lower() for spec_id in requested_ids}
     for spec_id in sorted(requested - grouped.keys()):
         problems.append(f"No cached Markdown file found for spec ID {spec_id}")
 
@@ -167,7 +167,7 @@ def read_existing_results(
                 line = reader.line_num
                 if None in row or any(value is None for value in row.values()):
                     raise LabelerError(f"Malformed results CSV row near line {line}")
-                spec_id = row["spec_id"].strip()
+                spec_id = row["spec_id"].strip().lower()
                 try:
                     repo_id = _normalize_repo_id(row["repo_id"])
                 except ValueError as exc:

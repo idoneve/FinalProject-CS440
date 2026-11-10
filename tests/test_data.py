@@ -368,6 +368,21 @@ class TestLoadSpecMarkdown:
         pd.testing.assert_frame_equal(first, second)
         assert len(fake_raw_response) == 2
 
+    def test_download_reuses_markdown_from_legacy_cache_path(
+        self, fake_parquet_df, monkeypatch, tmp_path
+    ):
+        metadata = fake_parquet_df.iloc[:1].copy()
+        legacy_path = sm._legacy_spec_local_path(metadata.iloc[0], tmp_path)
+        legacy_path.write_text("# legacy cached spec\n", encoding="utf-8")
+
+        def unexpected_request(*args, **kwargs):
+            raise AssertionError("an existing legacy cache file must be reused")
+
+        monkeypatch.setattr(sm.requests, "get", unexpected_request)
+        result = sm.load_spec_markdown(metadata, data_dir=tmp_path)
+
+        assert result[sm.MARKDOWN_COLUMN].tolist() == ["# legacy cached spec\n"]
+
     def test_reports_failed_downloads_and_keeps_available_specs(
         self, fake_parquet_df, monkeypatch, tmp_path, caplog, capsys
     ):
@@ -408,6 +423,26 @@ class TestLoadSpecMarkdown:
         ]
         assert "Cannot read Markdown for spec invalid" in caplog.text
         assert "invalid, missing" in caplog.text
+
+    def test_local_only_loads_markdown_from_legacy_cache_path(
+        self, fake_parquet_df, monkeypatch, tmp_path
+    ):
+        metadata = fake_parquet_df.iloc[:1].copy()
+        legacy_path = sm._legacy_spec_local_path(metadata.iloc[0], tmp_path)
+        legacy_path.write_text("# legacy cached spec\n", encoding="utf-8")
+
+        def unexpected_request(*args, **kwargs):
+            raise AssertionError("local-only Markdown loading must not use the network")
+
+        monkeypatch.setattr(sm.requests, "get", unexpected_request)
+        result = sm.load_spec_markdown(metadata, local_data_only=True, data_dir=tmp_path)
+
+        assert result.to_dict("records") == [
+            {
+                "file_url_sha16": metadata.iloc[0]["file_url_sha16"],
+                sm.MARKDOWN_COLUMN: "# legacy cached spec\n",
+            }
+        ]
 
     def test_rejects_duplicate_spec_ids(self, fake_parquet_df, tmp_path):
         metadata = fake_parquet_df.iloc[:2].copy()
@@ -591,10 +626,10 @@ class TestDownloadRandomSpecSample:
         metadata["file_path"] = [f"{spec_id}.md" for spec_id in metadata["file_url_sha16"]]
         metadata["file_sha"] = metadata["file_url_sha16"]
         cached_rows = metadata.iloc[[1, 2]]
-        for _, row in cached_rows.iterrows():
-            path = sm._spec_local_path(row, tmp_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("# cached spec\n")
+        modern_path = sm._spec_local_path(cached_rows.iloc[0], tmp_path)
+        modern_path.write_text("# cached spec\n")
+        legacy_path = sm._legacy_spec_local_path(cached_rows.iloc[1], tmp_path)
+        legacy_path.write_text("# legacy cached spec\n")
 
         def unexpected_download(*args, **kwargs):
             raise AssertionError("local-only sampling must not download specs")
@@ -613,6 +648,7 @@ class TestDownloadRandomSpecSample:
         assert result["repo_id"].is_unique
         assert result["file_url_sha16"].is_unique
         assert all(Path(path).is_file() for path in result["local_path"])
+        assert set(result["local_path"]) == {str(modern_path), str(legacy_path)}
 
 
 class TestFetchSampleRepoNames:

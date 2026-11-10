@@ -171,6 +171,44 @@ def test_analyzes_each_file_and_resumes_per_spec(labeler, monkeypatch, tmp_path)
     assert output.read_bytes() == original_output
 
 
+def test_uppercase_spec_ids_are_normalized_for_selection_and_resume(
+    labeler, monkeypatch, tmp_path
+):
+    spec_id = "ABCDEF0123456789"
+    write_spec(tmp_path, "owner_repo", "100", spec_id, "# Already analyzed\n")
+    output = tmp_path / "ai_analysis_results.csv"
+    write_results(
+        output,
+        [
+            {
+                "repo_id": "100",
+                "spec_id": spec_id,
+                "label": 0,
+                "confidence": 80,
+                "reasoning": "Existing result",
+            }
+        ],
+    )
+    client = install_fake_client(monkeypatch, labeler, {})
+
+    status = labeler.main(
+        [
+            "--data-dir",
+            str(tmp_path),
+            "--spec-id",
+            spec_id.lower(),
+            "--delay-seconds",
+            "0",
+        ]
+    )
+
+    assert status == 0
+    assert client.calls == []
+    _, rows = read_results(output)
+    assert len(rows) == 1
+    assert rows[0]["spec_id"] == spec_id
+
+
 def test_real_sdk_serializes_selected_files_without_network(
     labeler, monkeypatch, tmp_path
 ):

@@ -166,6 +166,16 @@ def test_data_init_downloads_missing_markdown_by_default(monkeypatch, tmp_path):
     assert namespace["spec_markdown"] == "# Test specification\n"
 
 
+def test_show_specs_notebook_uses_a_complete_spec_id():
+    notebook = json.loads(
+        (ROOT / "notebooks" / "show_specs.ipynb").read_text(encoding="utf-8")
+    )
+    setup = next(cell for cell in notebook["cells"] if cell["id"] == "show-specs-setup")
+    source = "".join(setup["source"])
+
+    assert 'SPEC_IDS = ["4063ec9b808116cb"]' in source
+
+
 @pytest.mark.parametrize(
     "model_name",
     [

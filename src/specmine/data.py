@@ -152,6 +152,37 @@ def _spec_local_path(row: pd.Series, data_dir: Path) -> Path:
     return data_dir / _safe_local_filename(repo, repo_id, spec_id)
 
 
+def _legacy_spec_local_path(row: pd.Series, data_dir: Path) -> Path:
+    """Resolve the Markdown filename used before repository/spec-based caching."""
+    repo = row["repo_name"]
+    file_path = row.get("file_path", "")
+    file_path = "" if pd.isna(file_path) else str(file_path)
+    sha = row.get("file_sha", "")
+    sha = "" if pd.isna(sha) else str(sha)
+    if not sha:
+        sha = row.get("file_last_commit_sha", "")
+        sha = "" if pd.isna(sha) else str(sha)
+    if not file_path or not sha:
+        sha = hashlib.sha256(str(row["file_url"]).encode("utf-8")).hexdigest()
+
+    owner, _, repository = repo.partition("/")
+    short_sha = (sha or "nohash")[:8]
+    tail = Path(file_path).name or "spec.md"
+    path_hash = hashlib.sha256(file_path.encode("utf-8")).hexdigest()
+    sha_hash = hashlib.sha256(sha.encode("utf-8")).hexdigest()
+    base = f"{owner}__{repository}__{short_sha}__{path_hash}__{sha_hash}__{tail}"
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "_", base)
+    return data_dir / filename
+
+
+def _existing_spec_local_path(row: pd.Series, data_dir: Path) -> Path | None:
+    """Find a non-empty cache file under either the current or legacy name."""
+    for path in (_spec_local_path(row, data_dir), _legacy_spec_local_path(row, data_dir)):
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+    return None
+
+
 def _download_file(url: str, dest: Path) -> bool:
     """
     Download a single file, skipping if already present.
@@ -214,7 +245,9 @@ def download_spec_files(df: pd.DataFrame, data_dir=None) -> pd.DataFrame:
             if not isinstance(blob_url, str):
                 raise ValueError("File URL is missing")
             raw_url = _blob_to_raw(blob_url)
-            dest = _spec_local_path(row, data_dir)
+            dest = _existing_spec_local_path(row, data_dir) or _spec_local_path(
+                row, data_dir
+            )
             _download_file(raw_url, dest)
             successful_positions.append(position)
             local_paths.append(str(dest))
@@ -271,8 +304,8 @@ def load_spec_markdown(
             if not isinstance(repo, str) or not repo:
                 LOGGER.warning("Missing repository name for spec %s", row[ID_COLUMN])
                 continue
-            path = _spec_local_path(row, cache_dir)
-            if path.is_file() and path.stat().st_size > 0:
+            path = _existing_spec_local_path(row, cache_dir)
+            if path is not None:
                 cached_rows.append((row[ID_COLUMN], path))
     else:
         downloaded = download_spec_files(requested, data_dir=cache_dir)
@@ -353,7 +386,11 @@ def download_random_spec_sample(
     if local_data_only:
         data_dir = DEFAULT_LOCAL_DATA_DIR if data_dir is None else Path(data_dir)
         candidates["local_path"] = candidates.apply(
-            lambda row: str(_spec_local_path(row, data_dir)), axis=1
+            lambda row: str(
+                _existing_spec_local_path(row, data_dir)
+                or _spec_local_path(row, data_dir)
+            ),
+            axis=1,
         )
         cached_paths = candidates["local_path"].map(Path)
         candidates = candidates.loc[
