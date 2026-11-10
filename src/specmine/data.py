@@ -29,6 +29,7 @@ FEATURES_PARQUET_URL = (
 )
 DEFAULT_LOCAL_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 DATA_DIR = DEFAULT_LOCAL_DATA_DIR
+SPEC_FILES_DIRNAME = "spec_files"
 DATASET_REPO_ID = "ShyAgarwal/specmine"
 PARQUET_FILENAMES = ("spec_files.parquet", "spec_content_features.parquet")
 CURATED_METADATA_FILENAME = "curated_spec_files.parquet"
@@ -147,7 +148,7 @@ def _spec_local_path(row: pd.Series, data_dir: Path) -> Path:
         raise ValueError("Repository ID is missing")
     if pd.isna(spec_id) or not str(spec_id).strip():
         raise ValueError("Spec ID is missing")
-    return data_dir / _safe_local_filename(repo, repo_id, spec_id)
+    return data_dir / SPEC_FILES_DIRNAME / _safe_local_filename(repo, repo_id, spec_id)
 
 
 def _legacy_spec_local_path(row: pd.Series, data_dir: Path) -> Path:
@@ -174,8 +175,10 @@ def _legacy_spec_local_path(row: pd.Series, data_dir: Path) -> Path:
 
 
 def _existing_spec_local_path(row: pd.Series, data_dir: Path) -> Path | None:
-    """Find a non-empty cache file under either the current or legacy name."""
-    for path in (_spec_local_path(row, data_dir), _legacy_spec_local_path(row, data_dir)):
+    """Find cached files in the new directory or their previous locations."""
+    modern = _spec_local_path(row, data_dir)
+    legacy = _legacy_spec_local_path(row, data_dir)
+    for path in (modern, modern.parent / legacy.name, data_dir / modern.name, legacy):
         if path.is_file() and path.stat().st_size > 0:
             return path
     return None
@@ -226,12 +229,12 @@ def download_spec_files(df: pd.DataFrame, data_dir=None) -> pd.DataFrame:
         raise KeyError(f"Spec data is missing columns: {sorted(missing_columns)}")
 
     data_dir = DATA_DIR if data_dir is None else Path(data_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / SPEC_FILES_DIRNAME).mkdir(parents=True, exist_ok=True)
     successful_positions = []
     local_paths = []
     failures = []
     total = len(df)
-    print(f"Downloading {total} SpecMine files into {data_dir}")
+    print(f"Downloading {total} SpecMine files into {data_dir / SPEC_FILES_DIRNAME}")
 
     for position, (_, row) in enumerate(df.iterrows()):
         i = position + 1

@@ -42,7 +42,7 @@ parquet. `data_dir=...` changes the cache root.
 Use `curated_only=True` to load the curated repositories. The filtered metadata
 is saved as `curated_spec_files.parquet` and reused on later calls, so the full
 metadata parquet is not scanned again. Raw Markdown is downloaded to the cache
-root and reused; `sample_size` limits the selected rows/files. With no
+root's `spec_files/` subdirectory and reused; `sample_size` limits the selected rows/files. With no
 `sample_size`, all curated rows are selected. To load curated metadata without
 downloading Markdown, set `download_raw_specs=False` and pass the metadata to
 `download_random_spec_sample` or `download_spec_files`:
@@ -153,7 +153,8 @@ to review.
 ## Gemini-Assisted Spec Labeling
 
 The optional labeler analyzes the Markdown files already cached in
-`data`; it does not download additional specs or metadata. Install the
+`data/spec_files/`; it also recognizes files in the old cache root. It does
+not download additional specs or metadata. Install the
 labeling extra:
 
 ```bash
@@ -178,14 +179,14 @@ source code. Each request can consume API quota or incur charges.
 Run the following command to analyze all cached Markdown files:
 
 ```bash
-python src/ai-labeler.py
+python src/specmine/ai-labeler.py
 ```
 
 To try only particular files first, repeat `--spec-id` with their 16-character
 SpecMine IDs:
 
 ```bash
-python src/ai-labeler.py --spec-id 0123456789abcdef \
+python src/specmine/ai-labeler.py --spec-id 0123456789abcdef \
   --spec-id fedcba9876543210
 ```
 
@@ -210,6 +211,7 @@ FinalProject-CS440/
 ├── README.md                    # Installation, workflows, and project guide
 ├── data/                        # Shared local cache and outputs
 │   ├── data/                    # Cached dataset parquets
+│   ├── spec_files/              # Downloaded Markdown specs
 │   ├── labeled_data/
 │   │   ├── fake_labels.csv      # Test labels; not verified authorship data
 │   │   └── real_labels.csv      # Current AI-assigned labels
@@ -221,8 +223,8 @@ FinalProject-CS440/
 │   ├── results.ipynb            # Evaluation summaries and plots
 │   └── figures/                 # Generated result plots
 ├── src/
-│   ├── ai-labeler.py            # Optional Gemini-assisted labeler
 │   └── specmine/
+│       ├── ai-labeler.py        # Optional Gemini-assisted labeler
 │       ├── data.py              # Dataset loading, caching, and downloads
 │       ├── features.py          # Feature preparation
 │       ├── labeling.py          # Leakage-safe review selection and matching
@@ -263,6 +265,12 @@ removing the old directories. Existing sample manifests may contain old
 absolute paths; rerun `data_init.ipynb` to generate a fresh manifest.
 The label CSVs now live in `data/labeled_data/`; preserve and reconcile any
 local edits to the old `examples/` files before switching.
+
+New Markdown downloads go into `data/spec_files/`. For existing caches, the
+loaders and labeler also read Markdown from the cache root, so those files can
+be moved to `data/spec_files/` without downloading them again. Avoid creating
+duplicate copies: the labeler reports duplicate spec IDs instead of choosing
+between them.
 
 ## Training Baselines
 
