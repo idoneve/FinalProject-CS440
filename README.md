@@ -139,7 +139,7 @@ cached files are reused from `data`.
 | `notebooks/data_init.ipynb` | Reuses or fills the cache, samples up to three specs from distinct repositories, writes `data/spec_sample.csv`, and displays one unreviewed repository with its Markdown, properties, and features. Set `CURATED_ONLY`, `SPEC_SAMPLE_SIZE`, and `SEED` near the top. |
 | `notebooks/show_specs.ipynb` | Looks up all distinct specs for one or more `REPO_IDS`, or specific `SPEC_IDS` (list or comma-separated string). It reuses cached files and downloads only missing metadata, features, or requested Markdown. |
 | `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, `TEXT_FEATURE`, `PREDICTION_SAMPLE_SIZE`, and `LOCAL_DATA_ONLY` near the top. It saves models under `data/models/` and a uniquely named prediction CSV under `notebooks/`. |
-| `notebooks/results.ipynb` | Retrains and compares all five models on a shared, seeded repository-disjoint holdout. Displays figures and exports PNG and PDF files under `notebooks/figures/`. Configure `LABELS_CSV`, `SEED`, `TEXT_FEATURE`, or `LOCAL_DATA_ONLY` near the top. The default AI-assigned labels are not verified authorship. |
+| `notebooks/results.ipynb` | Retrains and compares all five models on a shared, seeded repository-disjoint holdout. Displays figures and publishes PNG and PDF files in a unique run directory under `notebooks/figures/` in its final cell. Configure `LABELS_CSV`, `SEED`, `TEXT_FEATURE`, or `LOCAL_DATA_ONLY` near the top. The default AI-assigned labels are not verified authorship. |
 
 For labeling, ambiguous evidence should be recorded with blank
 `label` and `confidence` fields. Nonblank labels must be `0` or `1`, and their
@@ -255,13 +255,16 @@ The cache and saved models were previously stored in `notebooks/data/` and
 overwriting existing files:
 
 ```bash
-mkdir -p data/models
-cp -Rn notebooks/data/. data/   # if notebooks/data exists
-cp -Rn models/. data/models/   # if models exists
+python -m specmine.migrate_cache notebooks/data data  # if notebooks/data exists
+python -m specmine.migrate_cache models data/models   # if models exists
 ```
 
-Skip either command if its source does not exist. Check the copied files before
-removing the old directories. Existing sample manifests may contain old
+Skip either command if its source does not exist. Each file is copied to a
+temporary file and published only after the copy completes. Identical destination
+files are retained; a differing file, including a partial copy from an earlier
+migration, causes an error. Compare and move the conflicting destination aside
+before retrying. Check the copied files before removing the old directories.
+Existing sample manifests may contain old
 absolute paths; rerun `data_init.ipynb` to generate a fresh manifest.
 The label CSVs now live in `data/labeled_data/`; preserve and reconcile any
 local edits to the old `examples/` files before switching.
@@ -353,9 +356,17 @@ describe associations with the supplied labels, not causal evidence of AI use.
 Calibration and some curves are omitted when the held-out sample lacks
 adequate class support. Missing Markdown is excluded from all five models;
 the included sample may therefore differ from the original label file.
-Figures are saved as 300-dpi PNG and vector PDF files. Matching files are
-overwritten on rerun; inspect the current run's figures rather than assuming
-older files in the directory were regenerated.
+Figures are staged during execution and published together as 300-dpi PNG and
+vector PDF files in a unique `notebooks/figures/run-<id>/` directory when the
+final cell succeeds. Concurrent runs do not overwrite one another. Interrupted
+`.staging-*` directories are unpublished and may be removed after the run has
+stopped. Older figures in the parent directory are not part of the new run.
+
+A separate incremental SGD logistic diagnostic plots training log loss by
+epoch; it is not the fitted baseline. An exploratory three-fold,
+repository-grouped cross-validation plot compares numeric logistic regression
+`C` values using training data only. It does not tune the evaluated holdout
+models, and is omitted if the folds lack sufficient class support.
 
 The training notebook defaults to `data/labeled_data/real_labels.csv`; its current
 AI-assigned labels and confidence values are not verified ground truth.

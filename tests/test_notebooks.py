@@ -306,7 +306,6 @@ def test_results_notebook_uses_common_available_holdout_offline(
     notebook_data, tmp_path, monkeypatch
 ):
     import matplotlib.pyplot as plt
-    from matplotlib.figure import Figure
 
     labels_path, _, _ = notebook_data
     cells = notebook_sources("results.ipynb")
@@ -323,7 +322,6 @@ def test_results_notebook_uses_common_available_holdout_offline(
                 "display": lambda *args, **kwargs: None,
             }
         )
-        monkeypatch.setattr(Figure, "savefig", lambda *args, **kwargs: None)
         monkeypatch.setattr(plt, "show", lambda: plt.close("all"))
         for cell in cells[2:]:
             if cell is not None:
@@ -375,6 +373,13 @@ def test_results_notebook_uses_common_available_holdout_offline(
     assert namespace["mixed_numeric_coefficient"] == pytest.approx(
         mixed.named_steps["classifier"].coef_[0][preprocessor.output_indices_["numeric"]][0]
     )
+    assert len(namespace["loss_history"]) == 30
+    assert namespace["tuning_results"] is not None
+    assert len(namespace["tuning_splits"]) == 3
+    training_groups = namespace["train_frame"][train.REPOSITORY_COLUMN].to_numpy()
+    for training, validation in namespace["tuning_splits"]:
+        assert not set(training_groups[training]) & set(training_groups[validation])
+        assert not set(training_groups[validation]) & set(namespace["test_repos"])
     repeated = namespace["repository_disjoint_split"](
         namespace["training_features"],
         namespace["training_labels"],
@@ -442,10 +447,12 @@ def test_results_repository_plot_renders_bounded_notes_and_exports(tmp_path, mon
     assert namespace["repo_size_counts"].tolist() == [335, 0, 0, 0]
     assert len(observed) == 2
     assert all(width <= 8 and height <= 6 for width, height in observed)
+    assert not list(tmp_path.glob("run-*"))
+    published = namespace["figure_run"].publish()
     for stem in ("dataset_label_counts", "repository_size_distribution"):
-        assert (tmp_path / f"{stem}.png").read_bytes().startswith(b"\x89PNG")
-        assert (tmp_path / f"{stem}.pdf").read_bytes().startswith(b"%PDF")
-    assert len(namespace["GENERATED_FIGURES"]) == 4
+        assert (namespace["figure_run"].destination / f"{stem}.png").read_bytes().startswith(b"\x89PNG")
+        assert (namespace["figure_run"].destination / f"{stem}.pdf").read_bytes().startswith(b"%PDF")
+    assert len(published) == 4
 
 
 def test_results_notebook_exports_all_supported_figures_offline(
@@ -507,6 +514,7 @@ def test_results_notebook_exports_all_supported_figures_offline(
         "model_score_distributions", "random_forest_top10_importances",
         "logistic_regression_top10_coefficients", "naive_bayes_character_signals",
         "markdown_plus_feature_character_signals",
+        "training_loss_diagnostic", "logistic_tuning_cv",
     }
     assert len(seen_figures) == len(stems)
     assert {path.name for path in namespace["GENERATED_FIGURES"]} == {
@@ -560,5 +568,10 @@ def test_results_calibration_support_boundary(labels, should_plot, tmp_path, mon
         }
         monkeypatch.setattr(plt, "show", lambda: plt.close("all"))
         exec(cells[23], namespace)
-    assert (tmp_path / "model_calibration_curves.png").exists() is should_plot
-    assert (tmp_path / "model_calibration_curves.pdf").exists() is should_plot
+    if should_plot:
+        paths = namespace["figure_run"].publish()
+        assert {path.name for path in paths} == {
+            "model_calibration_curves.png", "model_calibration_curves.pdf"
+        }
+    else:
+        assert namespace["figure_run"] is None

@@ -16,6 +16,8 @@ tempCodeRunnerFile.py
 # Notebooks
 .ipynb_checkpoints/
 notebooks/*predictions*.csv
+notebooks/figures/run-*/
+notebooks/figures/.staging-*/
 
 # Trained models
 models/
