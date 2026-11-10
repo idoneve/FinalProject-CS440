@@ -139,8 +139,10 @@ def test_real_label_template_keeps_training_columns_and_repo_identity():
     labels_path = Path(__file__).resolve().parents[1] / "examples" / "real_labels.csv"
     labels = read_labels_csv(labels_path)
 
-    assert labels.empty
+    assert not labels.empty
     assert {"repo_id", "spec_id", "label", "confidence"} <= set(labels.columns)
+    assert "reasoning" not in labels.columns
+    assert "reasoning" in pd.read_csv(labels_path, nrows=0, skipinitialspace=True).columns
 
 
 def test_fake_label_fixture_has_repo_ids_and_preserves_duplicate_rows():
@@ -148,7 +150,13 @@ def test_fake_label_fixture_has_repo_ids_and_preserves_duplicate_rows():
     labels = pd.read_csv(labels_path, dtype={"spec_id": "string"})
     duplicate_id = "c8fa12389f12500c"
 
-    assert labels.columns.tolist() == ["repo_id", "spec_id", "label", "confidence"]
+    assert labels.columns.tolist() == [
+        "repo_id",
+        "spec_id",
+        "label",
+        "confidence",
+        "reasoning",
+    ]
     assert labels["repo_id"].notna().all()
     assert labels["spec_id"].notna().all()
     duplicate_repo_ids = (
