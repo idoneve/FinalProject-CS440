@@ -134,33 +134,22 @@ def _get_github_response(url: str, *, timeout: int) -> requests.Response:
     raise RuntimeError("GitHub redirect loop ended unexpectedly")
 
 
-def _safe_local_filename(repo_name: str, file_path: str, sha: str) -> str:
-    """
-    Build a filesystem-safe, unique filename.
-    Includes hashes of the full path and SHA so specs with the same basename
-    or abbreviated SHA do not collide.
-    """
-    owner, _, repo = repo_name.partition("/")
-    short_sha = (sha or "nohash")[:8]
-    tail = Path(file_path).name or "spec.md"
-    path_hash = hashlib.sha256(file_path.encode("utf-8")).hexdigest()
-    sha_hash = hashlib.sha256(sha.encode("utf-8")).hexdigest()
-    base = f"{owner}__{repo}__{short_sha}__{path_hash}__{sha_hash}__{tail}"
+def _safe_local_filename(repo_name: str, repo_id, spec_id) -> str:
+    """Build a filesystem-safe filename identifying the repository and spec."""
+    repo_component = repo_name.replace("/", "_")
+    base = f"{repo_component}-{repo_id}-{spec_id}.md"
     return re.sub(r"[^A-Za-z0-9._-]+", "_", base)
 
 
 def _spec_local_path(row: pd.Series, data_dir: Path) -> Path:
     repo = row["repo_name"]
-    file_path = row.get("file_path", "")
-    file_path = "" if pd.isna(file_path) else str(file_path)
-    sha = row.get("file_sha", "")
-    sha = "" if pd.isna(sha) else str(sha)
-    if not sha:
-        sha = row.get("file_last_commit_sha", "")
-        sha = "" if pd.isna(sha) else str(sha)
-    if not file_path or not sha:
-        sha = hashlib.sha256(str(row["file_url"]).encode("utf-8")).hexdigest()
-    return data_dir / _safe_local_filename(repo, file_path, sha)
+    repo_id = row.get("repo_id")
+    spec_id = row.get(ID_COLUMN)
+    if pd.isna(repo_id) or not str(repo_id).strip():
+        raise ValueError("Repository ID is missing")
+    if pd.isna(spec_id) or not str(spec_id).strip():
+        raise ValueError("Spec ID is missing")
+    return data_dir / _safe_local_filename(repo, repo_id, spec_id)
 
 
 def _download_file(url: str, dest: Path) -> bool:
@@ -202,7 +191,7 @@ def download_spec_files(df: pd.DataFrame, data_dir=None) -> pd.DataFrame:
     Existing non-empty files are reused. Rows that cannot be downloaded are
     excluded from the result and reported; every row is attempted.
     """
-    required_columns = {"repo_name", "file_url"}
+    required_columns = {"repo_id", "repo_name", ID_COLUMN, "file_url"}
     missing_columns = required_columns - set(df.columns)
     if missing_columns:
         raise KeyError(f"Spec data is missing columns: {sorted(missing_columns)}")
@@ -257,7 +246,7 @@ def load_spec_markdown(
     """
     if not isinstance(metadata, pd.DataFrame):
         raise TypeError("metadata must be a pandas DataFrame")
-    required = {ID_COLUMN, "repo_name", "file_url"}
+    required = {"repo_id", ID_COLUMN, "repo_name", "file_url"}
     missing_columns = required - set(metadata.columns)
     if missing_columns:
         raise KeyError(f"Spec data is missing columns: {sorted(missing_columns)}")
