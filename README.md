@@ -207,41 +207,57 @@ calibrated probability. Review the results before using them as training data.
 
 ```text
 FinalProject-CS440/
+├── .gitignore                   # Excludes local data, models, and generated files
 ├── README.md                    # Installation, workflows, and project guide
+├── DATA_DICTIONARY.md           # SpecMine dataset and feature reference
+├── LICENSE
+├── LICENSE-DATA
+├── pyproject.toml               # Package metadata and development dependencies
+├── requirements.txt             # Runtime dependency list
+├── schema.sql                   # Database schema reference
 ├── examples/
 │   ├── fake_labels.csv          # Test labels; not verified authorship data
 │   └── real_labels.csv          # Human-reviewed labels
-├── models/                      # Saved scikit-learn model pipelines
+├── models/                      # Generated model pipelines (created on demand)
 ├── notebooks/
+│   ├── ai-labeler.py            # Optional Gemini-assisted labeling CLI
 │   ├── data_init.ipynb          # Combined sample and review workflow
 │   ├── show_specs.ipynb         # Inspect specs by repo or spec ID
 │   ├── predict.ipynb            # Train, evaluate, and predict
 │   ├── results.ipynb            # Evaluation summaries and plots
-│   ├── data/                    # Parquet/curated metadata cache, Markdown, manifest
-│   └── figures/                 # Generated result plots
-├── src/specmine/
+│   ├── figures/                 # Evaluation plots
+│   ├── data/                    # Local cache, created on demand
+│   │   ├── data/                # Dataset parquets and curated metadata
+│   │   └── spec_sample.csv      # Sample manifest from data_init.ipynb
+│   └── unlabeled_predictions*.csv # Generated prediction outputs
+├── src/specmine/                # Installable Python package
+│   ├── __init__.py
 │   ├── data.py                  # Dataset loading, caching, and downloads
+│   ├── evaluate.py              # Model evaluation and prediction outputs
 │   ├── features.py              # Feature preparation
 │   ├── labeling.py              # Leakage-safe review selection and matching
 │   ├── labels.py                # Label CSV parsing and validation
-│   ├── train.py                 # Training and repository-disjoint splitting
-│   └── evaluate.py              # Model evaluation and prediction outputs
-├── tests/                       # Offline unit tests and opt-in network tests
-├── DATA_DICTIONARY.md           # SpecMine dataset and feature reference
-├── schema.sql                   # Database schema reference
-├── pyproject.toml               # Package metadata and development dependencies
-├── requirements.txt             # Runtime dependency list
-├── LICENSE
-└── LICENSE-DATA
+│   └── train.py                 # Training and repository-disjoint splitting
+└── tests/                       # Unit tests and opt-in network tests
+    ├── test_ai_labeler.py
+    ├── test_data.py
+    ├── test_evaluate.py
+    ├── test_features.py
+    ├── test_labeling.py
+    ├── test_notebooks.py
+    └── test_train.py
 ```
 
-The parquet cache, curated metadata subset, downloaded Markdown, sample
-manifest, and generated plots are local workflow data. Cache-first loaders
-reuse existing files and download only missing required files. Downloaded
-Markdown filenames use `repo_name-repo_id-spec_id.md` (with `/` in the
-repository name replaced by `_`) so the repository identity is retained in the
-filename. Remove a cached file when you intentionally want to fetch it again;
-other notebooks may create prediction CSVs and model files when run.
+The default cache root is `notebooks/data/`. Dataset parquet files and the
+curated metadata subset are stored in `notebooks/data/data/`; downloaded
+Markdown and generated manifests are stored at the cache root. These files,
+the root `models/` directory, and prediction outputs are created locally when
+the relevant workflows run and are excluded from version control. Cache-first
+loaders reuse existing files and download only missing required files.
+Downloaded Markdown filenames use `repo_name-repo_id-spec_id.md` (with `/` in
+the repository name replaced by `_`) so the repository identity is retained in
+the filename. Remove a cached file when you intentionally want to fetch it
+again.
 
 ## Training Baselines
 
