@@ -218,7 +218,6 @@ FinalProject-CS440/
 │   │   └── real_labels.csv      # Current AI-assigned labels
 │   └── models/                  # Saved scikit-learn model pipelines
 ├── notebooks/
-│   ├── ai-labeler.py            # Optional Gemini-assisted labeling CLI
 │   ├── data_init.ipynb          # Combined sample and review workflow
 │   ├── show_specs.ipynb         # Inspect specs by repo or spec ID
 │   ├── predict.ipynb            # Train, evaluate, and predict
@@ -226,13 +225,18 @@ FinalProject-CS440/
 │   └── figures/                 # Generated result plots
 ├── src/
 │   └── specmine/
+|       ├── __init__.py
 │       ├── ai-labeler.py        # Optional Gemini-assisted labeler
 │       ├── data.py              # Dataset loading, caching, and downloads
+│       ├── diagnostics.py
+│       ├── evaluate.py          # Model evaluation and prediction outputs
 │       ├── features.py          # Feature preparation
 │       ├── labeling.py          # Leakage-safe review selection and matching
 │       ├── labels.py            # Label CSV parsing and validation
+│       ├── model_cache.py
+│       ├── outputs.py
 │       ├── train.py             # Training and repository-disjoint splitting
-│       └── evaluate.py          # Model evaluation and prediction outputs
+│       └── evaluate.py          
 ├── tests/                       # Offline unit tests and opt-in network tests
 ├── DATA_DICTIONARY.md           # SpecMine dataset and feature reference
 ├── schema.sql                   # Database schema reference
