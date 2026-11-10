@@ -105,6 +105,77 @@ def notebook_sources(name):
     ]
 
 
+def test_data_init_downloads_missing_markdown_by_default(monkeypatch, tmp_path):
+    notebook = json.loads(
+        (ROOT / "notebooks" / "data_init.ipynb").read_text(encoding="utf-8")
+    )
+    cells = {
+        cell["id"]: "".join(cell.get("source", []))
+        for cell in notebook["cells"]
+        if cell["cell_type"] == "code"
+    }
+    metadata = pd.DataFrame(
+        {
+            "repo_id": [123],
+            "repo_name": ["owner/repo"],
+            "file_url_sha16": ["0123456789abcdef"],
+            "file_url": ["https://github.com/owner/repo/blob/main/spec.md"],
+            "file_path": ["spec.md"],
+        }
+    )
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# Test specification\n", encoding="utf-8")
+    sample = metadata.assign(local_path=str(spec_path))
+    feature_rows = pd.DataFrame(
+        {"file_url_sha16": ["0123456789abcdef"], "n_lines": [1]}
+    )
+    calls = {}
+
+    def fake_load_data(**kwargs):
+        assert kwargs["download_raw_specs"] is False
+        return metadata.copy()
+
+    def fake_download_random_spec_sample(*args, **kwargs):
+        calls["local_data_only"] = kwargs["local_data_only"]
+        return sample.copy()
+
+    def fake_load_feature_data(selected_ids, **kwargs):
+        assert selected_ids["file_url_sha16"].tolist() == ["0123456789abcdef"]
+        return feature_rows.copy()
+
+    monkeypatch.setattr(data, "load_data", fake_load_data)
+    monkeypatch.setattr(
+        data, "download_random_spec_sample", fake_download_random_spec_sample
+    )
+    monkeypatch.setattr(data, "load_feature_data", fake_load_feature_data)
+    monkeypatch.chdir(ROOT)
+
+    namespace = {}
+    exec(cells["data-init-setup"], namespace)
+    namespace["DATA_DIR"] = tmp_path
+    exec(cells["download-sample"], namespace)
+    exec(cells["select-review-repository"], namespace)
+    exec(cells["show-review-spec"], namespace)
+
+    assert calls["local_data_only"] is False
+    assert (tmp_path / "spec_sample.csv").is_file()
+    assert namespace["review_spec"]["file_url_sha16"].tolist() == [
+        "0123456789abcdef"
+    ]
+    assert namespace["review_features"]["n_lines"].tolist() == [1]
+    assert namespace["spec_markdown"] == "# Test specification\n"
+
+
+def test_show_specs_notebook_uses_a_complete_spec_id():
+    notebook = json.loads(
+        (ROOT / "notebooks" / "show_specs.ipynb").read_text(encoding="utf-8")
+    )
+    setup = next(cell for cell in notebook["cells"] if cell["id"] == "show-specs-setup")
+    source = "".join(setup["source"])
+
+    assert 'SPEC_IDS = ["4063ec9b808116cb"]' in source
+
+
 @pytest.mark.parametrize(
     "model_name",
     [

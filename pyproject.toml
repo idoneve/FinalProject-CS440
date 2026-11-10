@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
+labeling = ["google-genai>=1.40.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

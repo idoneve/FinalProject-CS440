@@ -155,22 +155,34 @@ def test_text_evaluation_loads_only_labeled_markdown_and_reports_missing(monkeyp
     data = pd.DataFrame(
         {
             "file_url_sha16": ["a", "b", "c"],
+            "repo_id": [101, 102, 103],
             "repo_name": ["r1", "r2", "r3"],
             "file_url": ["url-a", "url-b", "url-c"],
+        }
+    )
+    labels = pd.DataFrame(
+        {
+            "repo_id": [201, 202, 203],
+            "spec_id": ["a", "b", "c"],
             "label": [0, 1, np.nan],
-            "_label_matched": [True, True, True],
+            "confidence": [90, 80, 70],
         }
     )
     captured = {}
     monkeypatch.setattr(evaluate, "_load_model", lambda path: MarkdownDummyModel())
-    monkeypatch.setattr(evaluate, "_read_labels", lambda path: pd.DataFrame())
-    monkeypatch.setattr(evaluate, "_load_selected_data", lambda args, labels: data)
+    monkeypatch.setattr(evaluate, "_read_labels", lambda path: labels)
+    monkeypatch.setattr(
+        evaluate,
+        "_load_selected_data",
+        lambda args, selected_labels: evaluate._attach_labels(data, selected_labels),
+    )
 
     def unexpected_features(*args, **kwargs):
         raise AssertionError("text-only models do not need numeric feature loading")
 
     def fake_markdown(metadata, **kwargs):
         captured["ids"] = metadata["file_url_sha16"].tolist()
+        captured["repo_ids"] = metadata["repo_id"].tolist()
         captured.update(kwargs)
         return pd.DataFrame(
             {"file_url_sha16": ["a"], evaluate.MARKDOWN_COLUMN: ["Human text"]}
@@ -191,6 +203,7 @@ def test_text_evaluation_loads_only_labeled_markdown_and_reports_missing(monkeyp
     result = evaluate._evaluate(args)
 
     assert captured["ids"] == ["a", "b"]
+    assert captured["repo_ids"] == [101, 102]
     assert captured["local_data_only"] is True
     assert result["n_examples"] == 1
     assert result["n_unavailable_markdown"] == 1

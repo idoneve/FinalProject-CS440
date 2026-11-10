@@ -10,6 +10,7 @@ import pandas as pd
 LABEL_COLUMN = "label"
 CONFIDENCE_COLUMN = "confidence"
 SPEC_ID_COLUMN = "spec_id"
+REASONING_COLUMN = "reasoning"
 
 
 def read_labels_csv(labels_path: str | Path) -> pd.DataFrame:
@@ -17,8 +18,9 @@ def read_labels_csv(labels_path: str | Path) -> pd.DataFrame:
     labels_path = Path(labels_path)
     if not labels_path.is_file():
         raise FileNotFoundError(f"Labels CSV does not exist: {labels_path}")
-    labels = pd.read_csv(labels_path, dtype="string")
+    labels = pd.read_csv(labels_path, dtype="string", skipinitialspace=True)
     labels.columns = labels.columns.str.strip()
+    labels = labels.drop(columns=[REASONING_COLUMN], errors="ignore")
     required = {SPEC_ID_COLUMN, LABEL_COLUMN, CONFIDENCE_COLUMN}
     missing = sorted(required - set(labels.columns))
     if missing:

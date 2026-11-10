@@ -49,10 +49,18 @@ def fake_parquet_df():
             "s5" * 32,
         ),
     ]
-    for repo, path, url, content_sha in specs:
+    repo_ids = {
+        "alice/repoA": 101,
+        "bob/repoB": 102,
+        "carol/repoC": 103,
+        "dave/repoD": 104,
+    }
+    for index, (repo, path, url, content_sha) in enumerate(specs, start=1):
         rows.append(
             {
+                "repo_id": repo_ids[repo],
                 "repo_name": repo,
+                "file_url_sha16": f"spec-{index:02}",
                 "file_path": path,
                 "file_url": url,
                 "file_sha": content_sha[:16],
@@ -261,49 +269,42 @@ class TestBlobToRaw:
 
 
 class TestSafeFilename:
-    def test_includes_owner_repo_sha_and_basename(self):
+    def test_includes_repo_name_repo_id_and_spec_id(self):
         name = sm._safe_local_filename(
-            "owner/repo", "openspec/changes/foo/spec.md", "deadbeef" + "0" * 56
+            "owner/repo", 123, "0123456789abcdef"
         )
-        assert name.startswith("owner__repo__deadbeef__")
-        assert name.endswith("spec.md")
+        assert name == "owner_repo-123-0123456789abcdef.md"
 
     def test_sanitizes_weird_chars(self):
-        name = sm._safe_local_filename("o/r", "a b/c:d.md", "abc")
+        name = sm._safe_local_filename("o/r", 123, "a b/c:d")
         assert all(c.isalnum() or c in "._-" for c in name)
+        assert name.endswith(".md")
 
     def test_no_collision_across_specs_in_same_repo(self):
-        a = sm._safe_local_filename("o/r", "a/spec.md", "aaaa1111")
-        b = sm._safe_local_filename("o/r", "b/spec.md", "bbbb2222")
+        a = sm._safe_local_filename("o/r", 123, "aaaa1111")
+        b = sm._safe_local_filename("o/r", 123, "bbbb2222")
         assert a != b
 
-    def test_same_basename_and_sha_still_use_distinct_paths(self):
-        a = sm._safe_local_filename("o/r", "a/spec.md", "")
-        b = sm._safe_local_filename("o/r", "b/spec.md", "")
+    def test_repository_id_distinguishes_repositories_with_same_name(self):
+        a = sm._safe_local_filename("o/r", 123, "same-spec")
+        b = sm._safe_local_filename("o/r", 456, "same-spec")
         assert a != b
 
-    def test_missing_path_and_sha_use_url_specific_cache_identity(self, tmp_path):
+    def test_spec_local_path_uses_repository_and_spec_metadata(self, tmp_path):
         first = pd.Series(
             {
                 "repo_name": "o/r",
-                "file_path": pd.NA,
-                "file_sha": pd.NA,
-                "file_last_commit_sha": pd.NA,
+                "repo_id": 123,
+                "file_url_sha16": "first-spec",
                 "file_url": "https://github.com/o/r/blob/main/first.md",
             }
         )
         second = first.copy()
-        second["file_url"] = "https://github.com/o/r/blob/main/second.md"
+        second["file_url_sha16"] = "second-spec"
 
         assert sm._spec_local_path(first, tmp_path) != sm._spec_local_path(
             second, tmp_path
         )
-
-    def test_full_sha_distinguishes_shared_prefixes(self):
-        a = sm._safe_local_filename("o/r", "spec.md", "deadbeef" + "a" * 56)
-        b = sm._safe_local_filename("o/r", "spec.md", "deadbeef" + "b" * 56)
-        assert a != b
-
 
 class TestDownloadSpecFiles:
     def test_downloads_every_repo_to_requested_directory(
@@ -367,6 +368,21 @@ class TestLoadSpecMarkdown:
         pd.testing.assert_frame_equal(first, second)
         assert len(fake_raw_response) == 2
 
+    def test_download_reuses_markdown_from_legacy_cache_path(
+        self, fake_parquet_df, monkeypatch, tmp_path
+    ):
+        metadata = fake_parquet_df.iloc[:1].copy()
+        legacy_path = sm._legacy_spec_local_path(metadata.iloc[0], tmp_path)
+        legacy_path.write_text("# legacy cached spec\n", encoding="utf-8")
+
+        def unexpected_request(*args, **kwargs):
+            raise AssertionError("an existing legacy cache file must be reused")
+
+        monkeypatch.setattr(sm.requests, "get", unexpected_request)
+        result = sm.load_spec_markdown(metadata, data_dir=tmp_path)
+
+        assert result[sm.MARKDOWN_COLUMN].tolist() == ["# legacy cached spec\n"]
+
     def test_reports_failed_downloads_and_keeps_available_specs(
         self, fake_parquet_df, monkeypatch, tmp_path, caplog, capsys
     ):
@@ -407,6 +423,26 @@ class TestLoadSpecMarkdown:
         ]
         assert "Cannot read Markdown for spec invalid" in caplog.text
         assert "invalid, missing" in caplog.text
+
+    def test_local_only_loads_markdown_from_legacy_cache_path(
+        self, fake_parquet_df, monkeypatch, tmp_path
+    ):
+        metadata = fake_parquet_df.iloc[:1].copy()
+        legacy_path = sm._legacy_spec_local_path(metadata.iloc[0], tmp_path)
+        legacy_path.write_text("# legacy cached spec\n", encoding="utf-8")
+
+        def unexpected_request(*args, **kwargs):
+            raise AssertionError("local-only Markdown loading must not use the network")
+
+        monkeypatch.setattr(sm.requests, "get", unexpected_request)
+        result = sm.load_spec_markdown(metadata, local_data_only=True, data_dir=tmp_path)
+
+        assert result.to_dict("records") == [
+            {
+                "file_url_sha16": metadata.iloc[0]["file_url_sha16"],
+                sm.MARKDOWN_COLUMN: "# legacy cached spec\n",
+            }
+        ]
 
     def test_rejects_duplicate_spec_ids(self, fake_parquet_df, tmp_path):
         metadata = fake_parquet_df.iloc[:2].copy()
@@ -590,10 +626,10 @@ class TestDownloadRandomSpecSample:
         metadata["file_path"] = [f"{spec_id}.md" for spec_id in metadata["file_url_sha16"]]
         metadata["file_sha"] = metadata["file_url_sha16"]
         cached_rows = metadata.iloc[[1, 2]]
-        for _, row in cached_rows.iterrows():
-            path = sm._spec_local_path(row, tmp_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("# cached spec\n")
+        modern_path = sm._spec_local_path(cached_rows.iloc[0], tmp_path)
+        modern_path.write_text("# cached spec\n")
+        legacy_path = sm._legacy_spec_local_path(cached_rows.iloc[1], tmp_path)
+        legacy_path.write_text("# legacy cached spec\n")
 
         def unexpected_download(*args, **kwargs):
             raise AssertionError("local-only sampling must not download specs")
@@ -612,6 +648,7 @@ class TestDownloadRandomSpecSample:
         assert result["repo_id"].is_unique
         assert result["file_url_sha16"].is_unique
         assert all(Path(path).is_file() for path in result["local_path"])
+        assert set(result["local_path"]) == {str(modern_path), str(legacy_path)}
 
 
 class TestFetchSampleRepoNames:

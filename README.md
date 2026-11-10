@@ -150,6 +150,59 @@ sample and reports an error if no eligible downloaded spec is available; increas
 `SPEC_SAMPLE_SIZE` if the sample contains no repository that is still available
 to review.
 
+## Gemini-Assisted Spec Labeling
+
+The optional labeler analyzes the Markdown files already cached in
+`notebooks/data`; it does not download additional specs or metadata. Install the
+labeling extra:
+
+```bash
+python -m pip install -e ".[labeling]"
+```
+
+Set `GEMINI_API_KEY` in your environment using your usual secure secret
+mechanism; do not put the key in source files, shell history, or commits. In
+bash or zsh, you can enter it without echoing it to the terminal:
+
+```bash
+printf "Gemini API key: "
+IFS= read -rs GEMINI_API_KEY
+printf '\n'
+export GEMINI_API_KEY
+```
+
+The labeler sends each selected file's complete contents to Gemini, so only run
+it on files you are permitted to share and that contain no sensitive data or
+source code. Each request can consume API quota or incur charges.
+
+Run the following command to analyze all cached Markdown files:
+
+```bash
+python notebooks/ai-labeler.py
+```
+
+To try only particular files first, repeat `--spec-id` with their 16-character
+SpecMine IDs:
+
+```bash
+python notebooks/ai-labeler.py --spec-id 0123456789abcdef \
+  --spec-id fedcba9876543210
+```
+
+Results are appended to `notebooks/data/ai_analysis_results.csv` with columns
+`repo_id,spec_id,label,confidence,reasoning`. Existing valid spec results are
+reused on subsequent runs, including when multiple specs belong to the same
+repository. Errors are reported and produce a nonzero exit status; unsuccessful
+specs can be retried by running the command again. Formula-like reasoning is
+escaped for spreadsheet safety. The default model is `gemini-3.5-flash-lite`;
+use `--model` to select another available model and `--delay-seconds` to adjust
+the four-second delay between requests. The `--data-dir` and `--output` options
+override the default cache and CSV paths.
+
+These are model-generated estimates, not verified evidence of authorship.
+Confidence is the model's stated confidence in its binary label, not a
+calibrated probability. Review the results before using them as training data.
+
 ## Project Structure
 
 ```text
@@ -184,9 +237,11 @@ FinalProject-CS440/
 
 The parquet cache, curated metadata subset, downloaded Markdown, sample
 manifest, and generated plots are local workflow data. Cache-first loaders
-reuse existing files and download only missing required files. Remove a cached
-file when you intentionally want to fetch it again; other notebooks may create
-prediction CSVs and model files when run.
+reuse existing files and download only missing required files. Downloaded
+Markdown filenames use `repo_name-repo_id-spec_id.md` (with `/` in the
+repository name replaced by `_`) so the repository identity is retained in the
+filename. Remove a cached file when you intentionally want to fetch it again;
+other notebooks may create prediction CSVs and model files when run.
 
 ## Training Baselines
 
