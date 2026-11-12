@@ -1,0 +1,79 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\geometry{margin=1in}
+
+\title{\textbf{MSR 2027 SpecMine Challenge:} \\[0.4em] \textit{Detecting AI-Assisted Authorship in Software Specification Files}}
+
+\author{
+  Austin Burt \\
+  \texttt{austin.burt@colostate.edu}
+  \and
+  Isabelle Termaat  \\
+  \texttt{isabelle.termaat@colostate.edu}
+  \and
+  Nathaniel Kusiolek \\
+  \texttt{nathaniel.kusiolek@colostate.edu}
+}
+
+\date{November 27, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+
+\end{abstract}
+
+\section{Introduction}
+\subsection{Background and Motivation}
+
+\subsection{Problem Statement}
+
+\subsection{Contributions}
+
+\section{Dataset}
+\subsection{The SpecMine Corpus}
+
+\subsection{Labeling Protocol and Confidence Scoring}
+
+\subsection{Data Filtering and Missing Markdown Handling}
+
+\section{Method}
+\subsection{Leakage-Safe Repository Splitting}
+
+\subsection{Feature Representation}
+
+\subsection{Baseline Classifiers}
+
+\subsection{Confidence-Weighted Training and Evaluation Metrics}
+
+\section{Results}
+\subsection{Overall Model Comparison}
+
+\subsection{Feature Importance and Predictive Signals}
+
+\subsection{Extrapolation on Unlabeled Specifications}
+
+\section{Discussion}
+\subsection{Key Findings and Trade-offs}
+
+\subsection{Threats to Validity and Limitations}
+
+\section{Conclusion}
+\subsection{Summary}
+
+\subsection{Future Work}
+
+\begin{thebibliography}{9}
+\bibitem{specmine2026}
+S. Agarwal et al., ``SpecMine: A Large-Scale Corpus of Spec-Driven Development Artifacts,'' in \textit{Proc. IEEE/ACM Int. Conf. Mining Software Repositories (MSR '27)}, 2026, arXiv:2608.25202 [cs.SE].
+
+\bibitem{specmine_hf}
+``SpecMine Dataset Parquet Mirror,'' Hugging Face Datasets (\texttt{ShyAgarwal/specmine}), 2026. Available: \url{https://huggingface.co}
+\end{thebibliography}
+
+\end{document}
