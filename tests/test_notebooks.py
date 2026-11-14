@@ -178,7 +178,7 @@ def test_show_specs_notebook_uses_a_complete_spec_id():
     assert 'Example: ["4063ec9b808116cb"]' in source
 
 
-def test_show_specs_batch_files_cover_unlabeled_specs_without_overlap():
+def test_human_labels_combine_disjoint_batch_files():
     labeled = ROOT / "data" / "labeled_data"
     batches = {
         name: pd.read_csv(labeled / f"{name}_batch.csv", dtype=str)
@@ -186,11 +186,17 @@ def test_show_specs_batch_files_cover_unlabeled_specs_without_overlap():
     }
     human = pd.read_csv(labeled / "human_labels.csv", dtype=str)
     informed, blind = (set(batches[name]["spec_id"]) for name in ("informed", "blind"))
-    assert len(informed) == 11 and len(blind) == 80
+    assert informed and blind
     assert not informed & blind
-    assert not (informed | blind) & set(human["spec_id"])
     for batch in batches.values():
         assert list(batch.columns) == list(human.columns)
+    combined = pd.concat(batches.values(), ignore_index=True)
+    key = list(human.columns)
+    assert not human["spec_id"].duplicated().any()
+    pd.testing.assert_frame_equal(
+        human.sort_values("spec_id").reset_index(drop=True)[key],
+        combined.sort_values("spec_id").reset_index(drop=True)[key],
+    )
 
 
 @pytest.mark.parametrize(

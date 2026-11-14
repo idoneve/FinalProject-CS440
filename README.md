@@ -207,6 +207,16 @@ These are model-generated estimates, not verified evidence of authorship.
 Confidence is the model's stated confidence in its binary label, not a
 calibrated probability. Review the results before using them as training data.
 
+`python src/specmine/rescore_confidence.py data/ai_analysis_results.csv` maps
+those self-reported scores onto the prompt's rubric bands, using only the tell
+categories and human indicators the reasoning backs with quoted evidence. It
+never modifies the labeler's results file. It writes
+`ai_analysis_results_rescored.csv`, where `confidence` is the rubric-rescored
+score, `gemini_confidence` is Gemini's self-reported score, and `rescore_rule`
+names the rule applied, plus `ai_analysis_results_review.csv` listing rows
+whose reasoning does not support their label. Rerun it after the labeler
+appends rows.
+
 ## Project Structure
 
 ```text
