@@ -25,7 +25,7 @@
 \maketitle
 
 \begin{abstract}
-
+AI agents are increasingly used to draft software specification files, yet repositories rarely disclose it. Using the SpecMine corpus, we study whether AI involvement in a \texttt{spec.md} file can be detected from the file alone. We label 335 specifications from 335 distinct repositories (203 without and 132 with apparent AI involvement) using an LLM judge that assigns a label and a confidence score, followed by manual review of low-confidence cases, and train confidence-weighted classifiers on a repository-disjoint split. Logistic regression on simple structural features reaches 0.82 accuracy, 0.77 F1, and 0.86 ROC AUC on 67 held-out specifications, against a 0.66 majority-class baseline; a random forest performs comparably (AUC 0.89), and both outperform character n-gram models on the raw Markdown (AUC 0.74--0.83). No single feature dominates. Specifications labeled as AI-assisted tend to be longer, more deeply nested, and list-heavy, with bold-label bullets and horizontal rules, while Gherkin-style scenario templates are associated with the non-AI label. Because the labels reflect LLM and human judgments rather than verified provenance, our classifiers learn what the labeling process treats as evidence of AI involvement, not ground truth.
 \end{abstract}
 
 \section{Introduction}
@@ -39,6 +39,9 @@
 \subsection{The SpecMine Corpus}
 
 \subsection{Labeling Protocol and Confidence Scoring}
+SpecMine provides no authorship labels, so we constructed our own in two stages. First, each \texttt{spec.md} file was passed to Gemini, which returned a binary label (1 if AI was likely used at any point in writing the file, 0 otherwise), a confidence score from 0 to 100 for that label, and a short justification. Second, we revised the labels and confidence scores using the model's reasoning and our own reading of the files, concentrating on low-confidence cases.
+
+Because the labels reflect LLM and human judgments rather than verified provenance, we cannot be certain that every label is correct. The confidence score records this uncertainty: a specification showing only a single AI-associated feature, such as an em dash, may be labeled as AI-assisted, but with low confidence. Some artifacts make LLM use appear obvious, such as lots of large lists/tables and explicit success criteria, but even these are common artifacts of LLM use rather than conclusive proof. Our classifiers therefore learn what the labeling process treats as evidence of AI involvement, not ground truth.
 
 \subsection{Data Filtering and Missing Markdown Handling}
 
