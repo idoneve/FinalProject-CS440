@@ -7,6 +7,13 @@ Specification can be found here: **<https://2027.msrconf.org/track/msr-2027-mini
 
 Software developers are increasingly using AI agents to write technical specification files (`spec.md`). This project aims to build an AI classifier that analyzes specification files and predicts whether **AI was used at any point in creating a specific file**.
 
+The project has since shifted to testing whether LLM judges can tell when a
+spec was written with AI help at all. Labels independent of the text come from
+commit provenance (AI agents as commit authors or co-authors). Claude and
+Gemini labeling runs, blind and informed human labels, and cross-validated
+classifiers are each scored against those provenance labels. The write-up is in
+`paper/main.tex`, and `paper/TODO.txt` lists the sections still to write.
+
 ## Installation
 
 From the `FinalProject-CS440` directory (the directory containing this README),
@@ -98,7 +105,11 @@ Use `notebooks/data_init.ipynb` for cache initialization, sampling, and review.
 Use `notebooks/show_specs.ipynb` to review specs by hand: it shows repository
 and commit metadata, AI-provenance evidence from commit trailers and tool paths,
 rubric features highlighted in the Markdown, and matched content features. Set
-`SHOW_PROVENANCE = False` for a blind, text-only review. Run
+`REVIEW_MODE` to `"informed"` or `"blind"` to step through
+`informed_batch.csv` or `blind_batch.csv` in `REVIEW_BATCH = (start, count)`
+slices. Blind mode hides everything except the spec text (repository, path,
+commits, provenance, and the stored LLM label); set `REVIEW_MODE = None` to look
+up `REPO_IDS` or `SPEC_IDS` instead. Run
 `python -m specmine.review` to rebuild `data/labeled_data/provenance_evidence.csv`. Only missing parquet files and
 requested Markdown are downloaded into the data directory. Markdown is shown
 as escaped text so remote images and embedded HTML are not rendered. The raw
@@ -113,8 +124,10 @@ is a numeric value from 0 to 100 describing certainty in the assigned label.
 The notebook rejects repositories shared by `real_labels.csv` and
 `fake_labels.csv`, and excludes repositories already in either file from
 selection. Fake-label spec IDs are resolved to repository IDs through the
-metadata parquet. The displayed feature table is content-based; commit history
-is not used for labeling or by the current training/evaluation workflow.
+metadata parquet. The displayed feature table is content-based. Commit history
+is not used by the training/evaluation workflow; it is used only for the
+provenance labels described under
+[Human Labels and Provenance Analysis](#human-labels-and-provenance-analysis).
 
 `data/labeled_data/fake_labels.csv` is a test fixture that can be used by the training
 and results notebooks. It includes both `spec_id` and the corresponding `repo_id` for
@@ -140,9 +153,9 @@ cached files are reused from `data`.
 | Notebook | Purpose and how to use it |
 | --- | --- |
 | `notebooks/data_init.ipynb` | Reuses or fills the cache, samples up to three specs from distinct repositories, writes `data/spec_sample.csv`, and displays one unreviewed repository with its Markdown, properties, and features. Set `CURATED_ONLY`, `SPEC_SAMPLE_SIZE`, and `SEED` near the top. |
-| `notebooks/show_specs.ipynb` | Looks up all distinct specs for one or more `REPO_IDS`, or specific `SPEC_IDS` (list or comma-separated string). It reuses cached files and downloads only missing metadata, features, or requested Markdown. |
+| `notebooks/show_specs.ipynb` | Reviews a slice of the informed or blind batch (`REVIEW_MODE`, `REVIEW_BATCH`), or, with `REVIEW_MODE = None`, all distinct specs for one or more `REPO_IDS` or specific `SPEC_IDS` (list or comma-separated string). `SHOW_PROVENANCE`, `SHOW_LLM_LABEL`, and `HIGHLIGHT_TELLS` control what is displayed. It reuses cached files and downloads only missing metadata, features, or requested Markdown. |
 | `notebooks/predict.ipynb` | Trains and evaluates baselines, refits a selected model, then predicts an unlabeled sample. Set `LABELS_CSV`, `MODEL_NAME`, `TEXT_FEATURE`, `PREDICTION_SAMPLE_SIZE`, and `LOCAL_DATA_ONLY` near the top. It saves models under `data/models/` and a uniquely named prediction CSV under `notebooks/`. |
-| `notebooks/results.ipynb` | Retrains and compares all five models on a shared, seeded repository-disjoint holdout. Displays figures and publishes PNG and PDF files in a unique run directory under `notebooks/figures/` in its final cell. Configure `LABELS_CSV`, `SEED`, `TEXT_FEATURE`, or `LOCAL_DATA_ONLY` near the top. The default AI-assigned labels are not verified authorship. |
+| `notebooks/results.ipynb` | Retrains and compares all five models on a shared, seeded repository-disjoint holdout. Displays figures and publishes PNG and PDF files in a unique run directory under `notebooks/figures/` in its final cell. Configure `LABELS_CSV`, `SEED`, `TEXT_FEATURE`, or `LOCAL_DATA_ONLY` near the top. The default labels are the hand labels in `real_labels.csv`. The runs used in the paper are copied to `paper/run-*/`. |
 
 For labeling, ambiguous evidence should be recorded with blank
 `label` and `confidence` fields. Nonblank labels must be `0` or `1`, and their
@@ -215,7 +228,42 @@ never modifies the labeler's results file. It writes
 score, `gemini_confidence` is Gemini's self-reported score, and `rescore_rule`
 names the rule applied, plus `ai_analysis_results_review.csv` listing rows
 whose reasoning does not support their label. Rerun it after the labeler
-appends rows.
+appends rows. Scored against commit provenance, the LLM labels are at chance,
+so treat rescored confidence as a training weight, not evidence of authorship.
+
+## Human Labels and Provenance Analysis
+
+`data/labeled_data/provenance_evidence.csv` records, for each of 335 specs from
+distinct repositories, whether its commits show an AI agent as author or
+co-author (`direct`), only an AI spec-tool path (`tool`), or neither (`none`).
+It is built from metadata only, never the spec text, by
+`python -m specmine.review`.
+
+One author labeled specs by hand in `show_specs.ipynb` in two batches:
+
+- `informed_batch.csv` (81 specs): repository, path, commits, and LLM labels
+  were visible, so these labels are not a test of detection from text.
+- `blind_batch.csv` (80 specs, 40 `direct` and 40 `none`): only the spec text
+  was shown.
+
+`human_labels.csv` combines the two batches (161 rows), and `real_labels.csv`
+currently holds the same rows, so the notebooks train on the hand labels. The
+LLM labeling runs are kept for comparison: `claude_labels1.csv` and
+`claude_labels2.csv` (Claude), and `gemini_labels1.csv` to `gemini_labels3.csv`
+(Gemini, with different prompts). All label files use
+`repo_id,spec_id,label,confidence,reasoning`.
+
+Run the provenance comparison from the repository root:
+
+```bash
+python -m specmine.provenance_cv
+```
+
+It cross-validates the text classifiers (5-fold, repeated 10 times) on the
+`direct`-versus-`none` specs, scores each LLM run on the same specs without
+training, prints AUC with bootstrap intervals and balanced accuracy, and writes
+`data/labeled_data/provenance_cv_results.csv` (or the path given as its one
+argument). It needs the cached parquets and Markdown for all 335 specs.
 
 ## Project Structure
 
@@ -227,8 +275,15 @@ FinalProject-CS440/
 │   ├── data/                    # Cached dataset parquets
 │   ├── spec_files/              # Downloaded Markdown specs
 │   ├── labeled_data/
-│   │   ├── fake_labels.csv      # Test labels; not verified authorship data
-│   │   └── real_labels.csv      # Current AI-assigned labels
+│   │   ├── human_labels.csv     # Hand labels: informed + blind batches
+│   │   ├── informed_batch.csv   # Hand labels made with metadata visible
+│   │   ├── blind_batch.csv      # Hand labels made from the text alone
+│   │   ├── real_labels.csv      # Default notebook labels (currently the hand labels)
+│   │   ├── claude_labels*.csv   # Claude labeling runs
+│   │   ├── gemini_labels*.csv   # Gemini labeling runs
+│   │   ├── provenance_evidence.csv   # Commit-provenance evidence per spec
+│   │   ├── provenance_cv_results.csv # Output of specmine.provenance_cv
+│   │   └── fake_labels.csv      # Test labels; not verified authorship data
 │   └── models/                  # Saved scikit-learn model pipelines
 ├── notebooks/
 │   ├── data_init.ipynb          # Combined sample and review workflow
@@ -236,20 +291,26 @@ FinalProject-CS440/
 │   ├── predict.ipynb            # Train, evaluate, and predict
 │   ├── results.ipynb            # Evaluation summaries and plots
 │   └── figures/                 # Generated result plots
+├── paper/
+│   ├── main.tex                 # MSR 2027 challenge paper
+│   ├── TODO.txt                 # Sections still to write
+│   └── run-*/                   # Figures from the results-notebook runs in the paper
 ├── src/
 │   └── specmine/
-|       ├── __init__.py
+│       ├── __init__.py
 │       ├── ai-labeler.py        # Optional Gemini-assisted labeler
 │       ├── data.py              # Dataset loading, caching, and downloads
-│       ├── diagnostics.py
+│       ├── diagnostics.py       # Training-loss and tuning diagnostics
 │       ├── evaluate.py          # Model evaluation and prediction outputs
 │       ├── features.py          # Feature preparation
 │       ├── labeling.py          # Leakage-safe review selection and matching
 │       ├── labels.py            # Label CSV parsing and validation
-│       ├── model_cache.py
+│       ├── migrate_cache.py     # Copies an older local cache to data/
 │       ├── outputs.py
-│       ├── train.py             # Training and repository-disjoint splitting
-│       └── evaluate.py          
+│       ├── provenance_cv.py     # Classifiers and LLM judges vs provenance
+│       ├── rescore_confidence.py # Rubric-based rescoring of labeler confidence
+│       ├── review.py            # Provenance evidence and review rendering
+│       └── train.py             # Training and repository-disjoint splitting
 ├── tests/                       # Offline unit tests and opt-in network tests
 ├── DATA_DICTIONARY.md           # SpecMine dataset and feature reference
 ├── schema.sql                   # Database schema reference
@@ -359,7 +420,7 @@ matched rows after ID matching. Training reads the full metadata parquet to
 ensure labeled IDs are not lost to random sampling, then loads features only
 for labeled specs. Omit `--model-dir` to skip saving models.
 
-The results notebook separately visualizes the labeler's reported confidence
+The results notebook separately visualizes the label file's confidence
 (0–100) and each model's held-out probability of label 1 (0–1). Its
 `prediction_table` includes the probability assigned to the predicted class,
 alongside the original label confidence. Neither score is necessarily
@@ -387,8 +448,10 @@ repository-grouped cross-validation plot compares numeric logistic regression
 `C` values using training data only. It does not tune the evaluated holdout
 models, and is omitted if the folds lack sufficient class support.
 
-The training notebook defaults to `data/labeled_data/real_labels.csv`; its current
-AI-assigned labels and confidence values are not verified ground truth.
+The training notebook defaults to `data/labeled_data/real_labels.csv`, which
+currently holds the 161 hand labels. They are one author's judgments, and the
+informed half was made with commit metadata visible, so they are not verified
+ground truth.
 Choose `data/labeled_data/fake_labels.csv` in `LABELS_CSV` for testing only. All IDs appearing
 in the selected CSV (including blank-label rows) are excluded from the
 extrapolation sample. Repeated rows for the same ID and label collapse to one
