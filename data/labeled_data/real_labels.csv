@@ -1,1 +1,162 @@
 repo_id,spec_id,label,confidence,reasoning
+700011982,4063ec9b808116cb,1,90,"Tells: I. Human indicators: no. Typeset arrows and box-drawing tree: ""requirements → design → tasks → code"" and ""├── requirements.md""."
+1092661770,67e090d14c98275b,1,52,"Tells: H. Human indicators: no. Unsupported precision: ""query executes in less than 50 milliseconds""."
+782172228,3bba82287aa2ff5a,1,100,"Tells: E. Human indicators: no. Emoji as list markers: ""- 📄 `component_map.md`"".""DIRECT EVIDENCE IN COMMIT"
+1181275893,ceca793dbd9d42c3,0,52,Tells: none. Human indicators: no.
+1265706426,d6c9c1abeae479eb,1,100,Tells: none. Human indicators: no. DIRECT EVIDENCE IN REPO
+1263580561,1493a6f7555c5db9,1,100,"Tells: I. Human indicators: no. Arrow characters in plain text: ""`fix` → patch, `feat` → minor"".""DIRECT EVIDENCE IN COMMIT"
+255070464,86cc52caa43ac535,1,70,Tells: none. Human indicators: no. DIRECT EVIDENCE IN COMMIT
+1194345145,7850b07faf7f2cf3,1,65,Tells: none. Human indicators: no. OPENSPEC.
+1140826594,c8074688f6363f1b,1,60,Tells: none. Human indicators: no. OPENSPEC.
+1176833989,c005c7cada5c4f92,0,55,Tells: none. Human indicators: no.
+1182252126,fbd9f0f0738db6ba,0,75,"Tells: I. Human indicators: no. Arrow characters in plain text: ""(version 0 → 2)"".""SAYS TO ALWAYS HAVE NON-GOAL SECTION BUT HAS NONE"
+1239469327,1eb238235553d480,0,90,"Tells: I. Human indicators: no. Curly quotes in a plain-text file: ""in-memory “widgets”""."
+1013289646,9f9d190e3b1270e8,1,100,"Tells: B, D, G. Human indicators: no. Pasted prompt: ""**Input**: User description: \""Predicting the Impact of Alloying...\"""". Bold-label bullets throughout: ""**Why this priority**:"", ""**Independent Test**:"". Filler vocabulary: ""robust""."
+1188613626,2a199a9b959be504,1,100,"Tells: G, I. Human indicators: yes. Frequent em dashes: ""No need for MongoDB — Postgres JSONB is queryable""; typeset arrows/box-drawing: ""JVM (dev) → GraalVM native"". Human indicator: dated note ""*Last updated: March 2026.*""."
+1220062669,9d980b769b39e23c,1,80,Tells: none. Human indicators: no. HAS PROJECT_PROFILE
+1127575687,82b84e820b657fcc,1,87,"Tells: B, D, H. Human indicators: no. Pasted prompt: ""**Input**: User description: \""Add GitHub link and beautify UI\"""". Bold labels: ""**Why this priority**: Essential for an open-source project showcase."" Unsupported precision: ""remains under 2.5s""."
+1203832202,630693b2057a4649,1,70,Tells: none. Human indicators: no. NON-DEFAULT config.yaml
+1199840038,2af4727b16dc4741,1,90,"Tells: B, C, D, H. Human indicators: no. Pasted prompt: ""**Input**: User description: \""remove as many mockup tests as possible...\"""". Template scaffolding: ""## Requirements *(mandatory)*"". Bold labels: ""**Why this priority**:"". Unsupported precision: ""80% of""."
+1272426474,02644dbb35441f77,1,80,Tells: none. Human indicators: no. OPENSPEC.
+1225993149,a3d77498f5332a03,0,70,Tells: none. Human indicators: no.
+1289423889,d1e997109f98b7a4,1,90,Tells: none. Human indicators: no. COAUTHORED BY CLAUDE
+1224092696,42cd4f0eb536ba5c,0,82,"Tells: none. Human indicators: yes. Typo: ""devuelve error 403 Forbidden o404 Not Found""."
+1221244507,ab0d924e5427bf04,1,60,"Tells: D. Human indicators: no. Bold-label paragraphs repeated per requirement: ""**Rationale**: 统一的错误格式便于前端统一处理异常""."
+1255476951,df846b8dd2d4e9d3,0,52,Tells: none. Human indicators: no.
+1257078604,c610c00d8c58f1aa,0,65,"Tells: G. Human indicators: no. Filler vocabulary: ""ensuring seamless usability across mobile, tablet, and desktop viewports""."
+1263921237,97580f9fb9a02bac,1,54,Tells: none. Human indicators: no. NON-DEFAULT config.yaml
+1170763555,3d9819b2292b4a59,0,90,Tells: none. Human indicators: no. DIFFERENT PROJECT STRUCTURE
+1073320819,c7ebac2c4a168f28,0,52,"Tells: I. Human indicators: no. Arrow characters in plain text: ""Checks PackagePurchase → none."""
+59752505,9d9de1747bffc20a,0,90,Tells: none. Human indicators: no.
+1270937088,df54fca5a6605ef4,0,60,"Tells: D, I. Human indicators: no. Bold-label bullets: ""- **Platform:** Netlify (subdomain initially; custom domain later)"". Arrow characters: ""`npm run build` → static output + serverless functions""."
+1175562401,820e08d32edd711c,1,66,"Tells: C, D. Human indicators: no. Instructions addressed to the writer: ""Briefly describe the project in up to three sentences."" Bold-label bullets: ""- **P0:** Users must be able to reset their password""."
+1087023141,3f69c8390e78235e,0,65,"Tells: F. Human indicators: yes. Exhaustive boilerplate sections even for a hotfix: ""## 目标 / 非目标"", ""## 风险 / 假设（Risks, Assumptions）"", ""## 实现里程碑"". Dated note: ""2026-04-03: PR #203 修正 session-delete unsupported""."
+1200778727,343832ae730ddce5,1,88,"Tells: B, C, D, H, I. Human indicators: no. Pasted prompt: ""**Input**: Refactor LinkedIn auth to production BFF flow"". Template scaffolding: ""## Requirements *(mandatory)*"". Bold labels: ""**In scope**: LinkedIn sign-in only"". Unsupported precision: ""under 90 seconds"". Curly quotes/arrows present."
+1040331343,b506d5fa78f75f8d,1,88,"Tells: B, C, D, I. Human indicators: no. Pasted prompt: ""**Input**: User description: \""start collecting the requirements for @specs/008-multi-currency-country/TASKS.md...\"""". Scaffolding: ""## Success Criteria *(mandatory)*"". Bold labels throughout: ""- **Spec 014 — Country & Multi-Currency Schema Widening**"". Arrows: ""→ A: Preserve manual additions""."
+1164101198,635c5ed721144798,1,100,Tells: none. Human indicators: no. CLAUDE COMMIT.
+1241325315,40cee624fe47a1a2,1,86,"Tells: A, D, I. Human indicators: no. Text addressed to the requester: ""以下问题需要用户确认"" with options marked ""（推荐）"". Bold-label items: ""**数据持久化**: 数据库和日志是否需要在宿主机持久化？"". Arrows: ""（deps → builder → runner）""."
+1194988983,c26cadf665cb26a7,0,70,Tells: none. Human indicators: no.
+1201873016,14be72145c7f06f3,1,60,"Tells: D, H, I. Human indicators: no. Bold-label bullets: ""Manage **teams** (profiles, skills, availability)"" style labels throughout; unsupported precision in performance targets: ""< 200ms""; extensive box-drawing project tree and diagrams."
+1226856654,e0ae2292de889451,0,58,Tells: none. Human indicators: no.
+935884515,f861a61bd9775996,0,60,"Tells: F. Human indicators: no. Exhaustive boilerplate sections, some duplicated: ""## Performance et Optimisation"", ""## Maintenance"", ""## Sécurité"" appearing twice alongside ""## Sécurité et Permissions""."
+1181492580,51c6cbb8f8018b09,1,90,Tells: none. Human indicators: no.
+1141446200,cf0fc4e78d2a8b2a,1,58,Tells: none. Human indicators: no.
+1211191257,6408db59a69939a8,1,58,Tells: none. Human indicators: no.
+1290073750,f2a5914944ed719a,0,58,Tells: none. Human indicators: no.
+1235392229,cd5d1ad15e799b73,1,80,"Tells: G, I. Human indicators: no. ""not just X but Y"" construction: ""previewable artifacts that are not just one-off generated files, but **live, refreshable, auditable views**"". Curly quotes and box-drawing diagrams: ""“Create a live GitHub release dashboard.”""."
+1241071752,36d2c3622e8bb0dc,0,53,"Tells: G. Human indicators: no. Frequent em dashes: ""**SCENARIO 1.1 — Dialog opens with all category options**"", ""`app/search/search.component.ts` — add `onChangeCategory(product)`""."
+1215899433,cc498f44534e0969,1,95,"Tells: B, D, F, G, H. Human indicators: no. Explicit attribution: ""**Author**: GitHub Copilot"". Bold-label bullets: ""- **Objective**: Establish the foundational .NET 10 solution"". Full boilerplate (Executive Summary, Goals, Non-Goals, Security Considerations, Open Questions, Out of Scope). Unsupported precision: ""under 60 seconds""."
+1262947859,d25939d6019ae0eb,1,58,Tells: none. Human indicators: no.
+1240971103,17ba375b4c76c4ce,1,100,Tells: none. Human indicators: no. SAYS "DO NOT EDIT MANUALLY"
+1162968876,03aa3de8c11b9c1b,1,58,Tells: none. Human indicators: no.
+1121682278,94e9b5f09a1bbf9a,1,92,"Tells: B, C, F, H. Human indicators: no. Tool attribution: ""last_updated_by: \""cli-codex\"""" and ""recent_action: \""Created Level 2 scaffold\"""". Template residue: ""<!-- SPECKIT_TEMPLATE_SOURCE: spec-core + level2-verify | v2.2 -->"". Uniform boilerplate sections (METADATA, RISKS & DEPENDENCIES, EDGE CASES, COMPLEXITY ASSESSMENT). Unsupported precision: ""under 500ms""."
+1169539433,112f8b0f080e1cd9,1,100,Tells: none. Human indicators: no.
+1110813857,eecaca72f6a7c0a4,1,92,"Tells: B, C, D, G, H. Human indicators: no. Pasted prompt: ""**Input**: User story: \""Integrate a modern, intuitive Chat UI...\"""". Scaffolding: ""## Requirements *(mandatory)*"". Bold labels: ""**Why this priority**:"". Filler: ""a seamless interactive experience"". Unsupported precision: ""under 2 seconds""."
+1286476242,a9ded7232ebeefdf,1,53,Tells: none. Human indicators: no.
+1247938567,cdcb2bab8b270b1a,1,72,"Tells: G, I. Human indicators: no. Frequent em dashes: ""Any implementation — the Rust core (`korg-registry`), the Python reference (korgex), a JS verifier — is **conformant**"". Arrow characters in plain text."
+1089651903,59ab58615c62cf25,1,100,"Tells: H. Human indicators: no. Unsupported precision: ""within 5ms""."
+605313625,157f1aebec82dcb7,1,58,Tells: none. Human indicators: no. SAYS "AUTO GENERATED FILE"
+1053332063,22a5cc5117ccf6d9,0,60,"Tells: D, G. Human indicators: no. Bold-label bullets: ""- **Dynamic Curvature Initialization:**"", ""**Automatic Smoothing:** By default, the tool calculates"". Filler vocabulary: ""seamlessly""."
+1235676637,e184983f8573891d,1,90,"Tells: D, E, I. Human indicators: no. Bold-label lines: ""> **Type:** Program → Project"". Emoji status markers: ""**Priority:** 🔴 P0"" and ""`pdf-builder: ⬜ → ✅`"". Arrow characters: ""Program → Project""."
+1279912845,75a69d7831b85402,0,58,Tells: none. Human indicators: no.
+1252427005,a82da3c9e3d45af7,0,58,Tells: none. Human indicators: no.
+855747538,1378baf0ae5fd125,1,72,"Tells: D, E, F, G. Human indicators: no. Emoji status markers in headings: ""### GET /api/lessons/{lessonId}/quiz ✅ IMPLEMENTED"". Bold-label lines: ""**Supported Question Types:**"". Boilerplate sections incl. ""## Future Enhancements"". Filler: ""Comprehensive""."
+1209645940,faaf709f41d0f4a2,1,90,"Tells: B, D, H, I. Human indicators: no. Pasted prompt: ""**Input**: User description: \""参考 claude-code-architecture.md，创立整个项目的结构...\"""". Bold-label bullets throughout: ""**Why this priority**:"". Unsupported precision: ""能够在 30 分钟内理解任意子系统"". Arrow characters."
+1282832125,0263f08f3c42af3e,1,58,Tells: none. Human indicators: no.
+1276188928,0ced46c479421a44,1,57,"Tells: G, I. Human indicators: no. Frequent em dashes: ""the observation axis is **synthetic perturbations** — ACDC has no scanner/vendor/protocol metadata —"". Typeset characters: ""end-diastole→end-systole"", ""to ≈0""."
+1289023836,363f31c0dd0cc969,1,62,"Tells: D, I. Human indicators: no. Bold-label bullets throughout: ""- **AES-GCM 真实解密**：Gateway BCrypt 解密 → auth tag 验证 → SHA-256 校验"". Arrow characters: ""篡改 auth_tag → 解密失败 → 不写 slot""."
+1242664589,e01ecce4d2638371,0,58,Tells: none. Human indicators: no.
+1129437678,6859146748061bc6,1,58,Tells: none. Human indicators: no.
+1089046348,c97562647763d66a,1,58,Tells: none. Human indicators: no.
+1232436960,6b244c3d8fa0e60e,1,55,"Tells: G. Human indicators: no. Frequent em dashes: ""**Hook chain is ordered** — hooks run in registration order."""
+1187399469,6765f87ba1880414,1,60,"Instructions for AI coding assistants using OpenSpec for spec-driven development."
+1079011738,86e45b8f3bfe2139,1,80,"CO-AUTHORED BY CLAUDE"
+1233794291,95ded2bddcaa078d,0,60,NOTHING OBVIOUS
+1155191585,1dfbc66393fff00b,0,60,NOTHING OBVIOUS
+1187091071,c63080aad5e49430,0,60,
+1144773111,8075b38f806d392a,1,80,"Specs describe behavior not implementation"
+1289939739,61a661a9c6fea9c1,0,60,
+895397222,c9950839d450891a,1,85,"CO-AUTHORED BY CLAUDE"
+1172275096,2b381abd9a388bab,1,60,
+1284516754,f9bdecaeeab8ce78,1,90,"CO-AUTHORED BY CLAUDE"
+1207788717,02a27c958424888b,1,90,"CO-AUTHORED BY CLAUDE"
+1147832212,e3e782abb848f0e1,0,55,SMALL SPEC FILE
+1220105190,a3f8590ca33e0c3a,1,65,FEW AI FEATURES
+1113477189,e8552430ee177260,1,85,MANY AI FEATURES
+1080275912,22043c20c2f30249,0,60,LARGE OPENSPEC FILE WITH NO MAJOR AI FEATURES
+1247693752,a9ac36294e8e0dbf,1,80,MANY AI FEATURES
+1170558543,9d7628c75b37ea25,0,60,SMALL OPENSPEC FILE
+1179827046,dcb4625515802962,1,90,MANY LLM ARTIFACTS
+1207659220,7ec93a0681464a6e,1,70,LARGE OPENSPEC FILE WITH SOME AI FEATURES
+1287522228,7f11643e3adeb0ca,1,75,LARGE OPENSPEC FILE WITH SOME AI FEATURES
+445898947,b2bdee77512849b7,0,80,NON-UNIFORM FORMATTING
+1113549058,a36e859e9f7c3e1c,0,55,VERY SMALL OPENSPEC FILE
+1029821593,38e1902a95137ec1,1,60,SMALL FILE NOT OPENSPEC FEW AI FEATURES
+1254710314,95906d2646ec6328,1,80,LARGE FILE WITH AI FORMATTING AND FEATURES
+1076315000,934e63c9c4259eb4,1,75,LARGE FILE WITH LOTS OF AI FEATURES
+869531310,63ed9a1d129df78c,1,70,VERY LARGE FILE WITH TEMPLATE SCAFFOLDING AND STRUCTURED FORMATTING
+459959074,f615baacf8e494c2,1,60,WRITING ABOUT PHASES
+1108859789,1bdd928bd81081d5,0,60,SMALL OPENSPEC FILE
+1206389206,b59a67197ecf984f,0,60,SMALL OPENSPEC FILE
+932490533,3e3ce4c405e6c2f7,1,65,SMALL FILE WITH ACCEPTANCE CRITERIA
+1192625695,09aa7a904046f23e,0,60,MEDIUM OPENSPEC FILE WITH NO AI FEATURES
+1226990813,345fbbd0d7b0eefd,1,90,MANY AI FEATURES
+984900169,39055a2786a1adcf,0,65,SMALL FILE WITH HUMAN LIKE WRITING
+1156284328,523b68ba0ca0bf65,1,55,VERY SMALL OPENSPEC FILE WITH AI FEATURES
+1200795041,11dc7108dc8959ff,1,80,"(builder: scaffold, don't run)"
+111861759,3086cd04ead76cdc,1,60,MANY TABLES WITH SUB-HEADERS
+1203432375,f236eced9d3f3f05,0,60,OPENSPEC FILE NO AI FEATURES
+1134414181,6b35ca9c8e782da6,1,75,EM DASHES
+1149924571,1f1ddbcfb9548df8,0,55,VERY SMALL FILE WITH NO TEMPLATE
+1074852730,15ec2f22938bf7ff,1,55,LONG FORMATTED FILE WITH MANY EXAMPLE CODE SECTIONS
+1203455639,d624635674e647d8,1,80,LONG FILE WITH STEPS AND CREATION LOG WITH AI FEATURES
+1209140560,07562dcd907fcb83,0,60,OPENSPEC FILE WITH NO MAJOR AI FEATURES
+1160543749,d6d92d7378589bb2,1,80,"USER-VISITED OUTCOME"
+1174244486,bf0a03689a9784b3,0,65,SMALL FILE WITH NO AI FEATURES
+1199843902,b732e331f59121dd,1,75,LONG OPENSPEC FILE WITH AI FEATURES
+1086384763,557cb2e89f496eb8,1,80,"*(REQUIRED)*" TAGS IN HEADERS
+1234652804,35f6f99dd722d981,0,70,NO MAJOR AI FEATURES WITH STRUCTURED FORMATTING
+1203405893,f8a710c75c3c1870,1,90,LOTS OF AI FEATURES AND "*(mandatory)*" TAGS
+1212424025,471337ab284817fa,0,70,SHORT FILE NO AI FEATURES
+1150394246,849b8204183e9173,0,55,NO MAJOR AI FEATURES AND SIMPLE TEXT
+920463539,d0ffb5661cb16430,1,75,"*Next: generate `plan.md` via `/prp-plan` once this spec is approved.*" AND OTHER AI FEATURES
+1137835457,be112dd6344ffbac,1,60,PHASES AND STRUCTURED FORMATTING
+1166204471,31eaec70537b9b3c,1,70,"_Session: 2026-02-25-1605-node-playtesting_"
+1004144755,6a7cc27bfabed5e3,0,70,VERY SIMPLE TEXT AND SMALL FILE
+1275105419,78df55ae781eb358,1,55,SMALL OPENSPEC FILE WITH STRUCTURED FORMATTING
+1139724751,3162767db69f187c,1,90,"**Target output path:** `dev/work-packages/mvp/033-rule-storage/spec.md`"
+1197067724,c73c68918f93306a,0,75,NO MAJOR AI FEATURES AND LOTS OF COPIED REQUESTS
+1182627781,db2716810a0adca3,0,85,"PRIOR WORK AND REFERENCES"
+1187231208,c288904e44f76ec6,1,80,PAGE HEADER IS AI ARTIFACT
+1143547205,799d31b7afae97b3,1,80,PAGE HEADER IS AI ARTIFACT (AGAIN)
+1257466149,881c74d0b895cfd8,1,60,OPENSPEC FILE WITH A AI FEATURE
+1201027932,ac240091f78d0e54,0,55,OPENSPEC FILE WITH NO AI FEATURES AND SIMPLE TEXT
+1170270407,7b2adb827349b800,0,65,OPENSPEC FILE BUT NOT STANDARD FORMATTING
+1153220968,267d17e84f2e4b3b,1,75,OPENSPEC FILE WITH SCENARIO AND REQUIREMENT HEADERS
+1130772343,045730913f6a1cf3,0,80,NO TEMPLATE AND TEXT IS SIMPLE AND HUMAN-LIKE
+1152743659,dabb3f802f1b2aab,1,55,SMALL OPENSPEC WITH "MODIFIED requirements" HEADER
+1145684540,53a1da51e9c22943,0,90,VERY SMALL NON-TEMPLATE SIMPLE FILE
+1228111866,2de9ea90c1ea96d2,1,80,LARGE TEMPLATED FILE WITH LOTS OF CODE EXAMPLES
+1146753014,fe69e2637ec39c87,1,100,"Generated by openlore v1.0.0 on 2025-06-15"
+1124094449,c03dcbc671594549,1,70,OPENSPEC FILE WITH REQUIREMENT AND SCENARIO HEADERS
+918936955,fa732a428cb0f2dd,1,65,TEMPLATE WITH CHANGE LOG AND CODE EXAMPLES
+1026474169,deddafc8eecd609f,1,60,LARGE OPENSPEC WITH CODE EXAMPLES AND TABLES
+1269024121,de991c010eee7c8d,0,60,LARGE FORMATTED FILE WITH EXAMPLES BUT SIMPLE TEXT
+1089704842,61f609d21b82aa32,0,60,LARGE FORMATTED FILE WITH SIMPLE TEXT
+933680436,64c4b0634cc5edca,0,70,SMALL AND NON-UNIFORM FORMATTING
+1273425347,1ca4b5c3e3257937,0,55,SMALL OPENSPEC FILE WITH NO AI FEATURES
+1234135246,1c63d291d4f9b279,1,80,SMALL FILE GENERATED BY NPM SCRIPT AND HAS EM DASHES
+1213163225,e1c0c31233f00b63,1,75,SMALL OPENSPEC WITH SCAFFOLDING
+1094267295,9371609eb4bc1623,0,60,SMALL OPENSPEC FILE WITH SIMPLE TEXT
+575040146,d798274b28b9b45b,0,60,LARGE TEMPLATED FILE WITH HUMAN LIKE TEXT
+1139249731,82e6ce2573e53170,1,70,LOTS OF MARKDOWN FEATURES THAT AI LIKES TO USE
+673550772,d1182af1d56a8ca3,1,55,SMALL OPENSPEC FILE WITH AI FEATURES
+1185787837,8abe64a90149cae7,0,55,SMALL OPENSPEC FILE WITH NO AI FEATURES
+1163638718,69175b18833e37f1,0,60,VERY SMALL OPENSPEC FILE WITH NO AI FEATURES
+1152523196,4aa377d46a7831c9,1,60,SMALL FILE WITH LOTS OF BOILERPLATE SECTIONS
+1236454339,63f8a04003dd52ca,0,55,OPENSPEC FILE WITH NO AI FEATURES
+1119963984,2cc38bf9a6dcdeff,1,100,"Let me know the next step whenever youre ready."
+1209288416,fa570f7365fb5b06,0,75,SHORT FILE WITH MANY SIMPLE SENTENCES
+1071848022,3c4dea03ecf8e2c8,0,55,VERY SHORT OPENSPEC FILE
+1087180837,bfdd4317f3aa0a77,1,85,"**Design settled 2026-06-16 (after a rejected first attempt).**"
+1195407566,4a98eb19d4212215,1,60,"New project — no existing application files beyond scaffolding."
