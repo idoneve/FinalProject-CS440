@@ -175,7 +175,28 @@ def test_show_specs_notebook_uses_a_complete_spec_id():
     setup = next(cell for cell in notebook["cells"] if cell["id"] == "show-specs-setup")
     source = "".join(setup["source"])
 
-    assert 'SPEC_IDS = ["4063ec9b808116cb"]' in source
+    assert 'Example: ["4063ec9b808116cb"]' in source
+
+
+def test_human_labels_combine_disjoint_batch_files():
+    labeled = ROOT / "data" / "labeled_data"
+    batches = {
+        name: pd.read_csv(labeled / f"{name}_batch.csv", dtype=str)
+        for name in ("informed", "blind")
+    }
+    human = pd.read_csv(labeled / "human_labels.csv", dtype=str)
+    informed, blind = (set(batches[name]["spec_id"]) for name in ("informed", "blind"))
+    assert informed and blind
+    assert not informed & blind
+    for batch in batches.values():
+        assert list(batch.columns) == list(human.columns)
+    combined = pd.concat(batches.values(), ignore_index=True)
+    key = list(human.columns)
+    assert not human["spec_id"].duplicated().any()
+    pd.testing.assert_frame_equal(
+        human.sort_values("spec_id").reset_index(drop=True)[key],
+        combined.sort_values("spec_id").reset_index(drop=True)[key],
+    )
 
 
 @pytest.mark.parametrize(
@@ -231,12 +252,70 @@ def test_show_specs_notebook_runs_with_root_cache(monkeypatch, tmp_path):
     cells = notebook_sources("show_specs.ipynb")
     namespace = {}
     exec(cells[1], namespace)
+    namespace.update(REVIEW_MODE=None, REVIEW_BATCH=None, SPEC_IDS=[spec_id])
     namespace["display"] = lambda *args: None
     for cell in cells[2:]:
         if cell is not None:
             exec(cell, namespace)
     assert calls == [expected_cache] * 3
     assert namespace["spec_details"]["file_url_sha16"].tolist() == [spec_id]
+
+
+def test_show_specs_blind_mode_shows_only_the_spec_text(monkeypatch, tmp_path):
+    spec_id = "4063ec9b808116cb"
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# Cached spec\n", encoding="utf-8")
+    batch_path = tmp_path / "blind_batch.csv"
+    pd.DataFrame({"repo_id": ["123"], "spec_id": [spec_id]}).to_csv(batch_path, index=False)
+    metadata = pd.DataFrame(
+        [{
+            "repo_id": 123,
+            "repo_name": "secret-owner/secret-repo",
+            "file_url_sha16": spec_id,
+            "file_path": "openspec/specs/secret/spec.md",
+            "file_url": "https://github.com/secret-owner/secret-repo/blob/main/spec.md",
+            "spec_tool": "openspec",
+            "file_first_commit_message": "Co-Authored-By: Claude <noreply@anthropic.com>",
+        }]
+    )
+    monkeypatch.setattr(data, "load_data", lambda **kwargs: metadata.copy())
+    monkeypatch.setattr(
+        data,
+        "load_feature_data",
+        lambda ids, **kwargs: pd.DataFrame(
+            {"file_url_sha16": ids["file_url_sha16"], "n_lines": [1]}
+        ),
+    )
+    monkeypatch.setattr(
+        data,
+        "download_spec_files",
+        lambda selected, **kwargs: selected.assign(local_path=str(spec_path)),
+    )
+    monkeypatch.chdir(ROOT)
+    cells = notebook_sources("show_specs.ipynb")
+    namespace = {}
+    exec(cells[1], namespace)
+    namespace.update(
+        REVIEW_MODE="blind",
+        REVIEW_BATCH=None,
+        BATCH_FILES={"blind": batch_path},
+        SHOW_PROVENANCE=True,
+        SHOW_LLM_LABEL=True,
+    )
+    shown = []
+
+    def capture(*objects):
+        for item in objects:
+            shown.append(getattr(item, "data", None) or str(item))
+
+    namespace["display"] = capture
+    for cell in cells[2:]:
+        if cell is not None:
+            exec(cell, namespace)
+    rendered = "\n".join(shown)
+    assert "# Cached spec" in rendered
+    for leak in ("secret-owner", "secret-repo", "openspec", "Co-Authored-By"):
+        assert leak not in rendered
 
 
 @pytest.mark.parametrize(

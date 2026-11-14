@@ -142,7 +142,7 @@ def prepare_training_data(
     if unmatched_ids:
         raise ValueError(
             f"{len(unmatched_ids)} labeled spec_id value(s) do not match the "
-            "SpecMine dataset; check the CSV IDs"
+            f"SpecMine dataset; check the CSV IDs {unmatched_ids}"
         )
     if labeled_rows.empty:
         raise ValueError("Labels CSV contains no labeled examples; use 0, 1, or blank")

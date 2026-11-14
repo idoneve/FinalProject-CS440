@@ -1,0 +1,107 @@
+Paper TODO (main.tex)
+=====================
+
+The paper is restructured around the hypothesis that LLM judges cannot tell
+when a spec was written with AI help. Abstract, Research Questions,
+Contributions, Dataset, Method, Results and Threats to Validity are written.
+The sections below are empty or need checking.
+
+
+1. EMPTY SECTIONS TO WRITE
+--------------------------
+
+[ ] 1.1 Background and Motivation
+    - Spec-driven development and AI agents writing spec.md files.
+    - Studies and tools increasingly use LLMs as judges to label AI-written
+      content; if the judge is wrong, every downstream result inherits it.
+    - Why specs matter: they drive the code agents generate, and reviewers
+      may trust them differently depending on who wrote them.
+
+[ ] 2 Related Work
+    - AI-generated text detection (detectors, watermarking, known weaknesses).
+    - LLM-as-a-judge reliability and self-preference.
+    - Spec-driven development / SpecMine itself.
+    - Mining studies that use commit trailers (Co-Authored-By) to find
+      agent-written code.
+    - Add the matching \bibitem entries to the bibliography.
+
+[ ] 6.1 Key Findings and Trade-offs
+    Points the results support:
+    - LLM judges are at chance against provenance regardless of prompt;
+      prompts change how often they say "AI", not whether they are right.
+    - The judges agree with each other (kappa 0.67) more than with provenance,
+      so they share surface heuristics.
+    - A blind human beats every LLM run on the same files (0.65 vs 0.47-0.52),
+      so some signal exists in the text and the LLMs miss it.
+    - Classifier accuracy comes from format recognition, and accuracy against
+      LLM labels (0.86-0.89 AUC) measures agreement with the judge.
+    - Practical takeaway: do not use LLM judges as ground truth for
+      AI-authorship studies; use provenance where it exists.
+
+[ ] 7.1 Summary
+    One paragraph restating RQ1-RQ3 and their answers.
+
+[ ] 7.2 Future Work
+    - Second (and third) independent blind labeler; inter-rater agreement.
+    - Verified human negatives (pre-ChatGPT specs from outside SpecMine).
+    - More provenance positives at ordinary paths to narrow the intervals.
+    - More judges/prompts (e.g. few-shot with provenance-labeled examples).
+
+
+2. FACTS TO CHECK OR FILL IN
+----------------------------
+
+[ ] 3.4 LLM Judge Labels: the three Gemini prompts are described as
+    "simple", "lower confidence" and "favor non-AI" (the names used in the
+    tables). Confirm these match what each prompt actually said:
+      gemini_labels1.csv = simple prompt
+      gemini_labels2.csv = less confidence
+      gemini_labels3.csv = favor non-AI
+    Consider putting the Claude rubric prompt in an appendix.
+
+[ ] 3.2 Sample: says 335 files, at most one per repository. Add how the
+    repositories were chosen (curated list? random seed?) if relevant.
+
+[ ] 5.4 Classifiers Trained on Human and LLM Labels: the LLM-label numbers
+    (0.82 acc, 0.77 F1, 0.86 AUC on 67 held-out, RF 0.89, 203/132 split)
+    come from the OLD abstract (Gemini labels + manual review). Re-run
+    notebooks/results.ipynb on that label file and confirm, or replace
+    with the claude_labels1.csv run (figures in paper/run-claude/).
+
+[ ] Title: still "Detecting AI-Assisted Authorship in Software Specification
+    Files". Consider a title that states the finding, e.g. about whether
+    LLM judges can detect AI-written specs.
+
+[ ] Date on the title page (currently November 27, 2026).
+
+[ ] MSR challenge page limit and template: the paper uses the plain article
+    class; check whether the track requires the IEEE/ACM template.
+
+
+3. OPTIONAL ADDITIONS
+---------------------
+
+[ ] Figures: paper/run-blind-only, run-informed-only, run-human-all and
+    run-claude hold figures from the classifier runs (ROC curves, confusion
+    matrices, metric comparisons). None are in the paper yet. Useful
+    candidates: a bar chart of "share labeled AI" for direct vs none per
+    labeler (not generated yet), or run-human-all/confusion_matrices.png
+    for section 5.4.
+
+[ ] A table or appendix listing the provenance signals (trailers, agent
+    identities, tool paths) and how many specs each one matched.
+
+
+4. WHERE THE NUMBERS COME FROM
+-----------------------------
+
+- Provenance labels: data/labeled_data/provenance_evidence.csv
+    PYTHONPATH=src python -m specmine.review
+- Table 3 (classifiers + LLM judges, cross-validated):
+    data/labeled_data/provenance_cv_results.csv
+    PYTHONPATH=src python -m specmine.provenance_cv     (about 4 minutes)
+- Tables 1 and 2 (LLM runs and human labels vs provenance): computed by
+  comparing claude_labels1.csv, gemini_labels1-3.csv, informed_batch.csv
+  and blind_batch.csv with provenance_evidence.csv. Score = confidence/100
+  for label 1 and 1 - confidence/100 for label 0; bootstrap seeds fixed.
+  These were run ad hoc and are not saved as a script yet.
