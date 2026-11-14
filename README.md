@@ -95,8 +95,11 @@ may fetch missing curated metadata on its first run, then reuse the local
 subset. `local_data_only=True` cannot be combined with `curated_only=True`.
 
 Use `notebooks/data_init.ipynb` for cache initialization, sampling, and review.
-Use `notebooks/show_specs.ipynb` to look up IDs and inspect all repository/spec
-properties, matched features, and Markdown. Only missing parquet files and
+Use `notebooks/show_specs.ipynb` to review specs by hand: it shows repository
+and commit metadata, AI-provenance evidence from commit trailers and tool paths,
+rubric features highlighted in the Markdown, and matched content features. Set
+`SHOW_PROVENANCE = False` for a blind, text-only review. Run
+`python -m specmine.review` to rebuild `data/labeled_data/provenance_evidence.csv`. Only missing parquet files and
 requested Markdown are downloaded into the data directory. Markdown is shown
 as escaped text so remote images and embedded HTML are not rendered. The raw
 spec downloader accepts only HTTPS URLs on `github.com` and

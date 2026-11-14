@@ -61,6 +61,69 @@ Because the labels reflect LLM and human judgments rather than verified provenan
 
 \subsection{Extrapolation on Unlabeled Specifications}
 
+% ---------------------------------------------------------------------------
+% DRAFT (2026-11-14): preliminary provenance results, saved to be rewritten once
+% the blind and informed hand labels are complete. Numbers come from
+% src/specmine/provenance_cv.py -> data/labeled_data/provenance_cv_results.csv
+% and from comparing the LLM label files with provenance_evidence.csv.
+% Gemini runs: run 1 = gemini_labels1.csv, run 2 = gemini_labels2.csv,
+% run 3 = gemini_labels3.csv; each used a different prompt (TODO: name them).
+% ---------------------------------------------------------------------------
+\subsection{Evaluation Against Commit Provenance (Preliminary)}
+\label{sec:provenance}
+
+\paragraph{Provenance labels.} To obtain labels that do not depend on reading the specification, we derived evidence of AI involvement from repository and commit metadata alone (\texttt{src/specmine/review.py}). A specification has \emph{direct} evidence when an AI agent is the author or a co-author of a commit that touched the file, for example a \texttt{Co-Authored-By: Claude} trailer or a Copilot, Cursor or Caffeine commit identity. It has \emph{tool} evidence when it sits in an agent-driven specification workflow (OpenSpec, Spec Kit, Trae, Conductor) without such a trailer, and \emph{none} otherwise. Of the 335 labeled specifications, 117 have direct evidence, 158 tool evidence and 60 none. For 112 of the 117, the trailer is on the commit that created the file. ``None'' means no evidence was recorded, not that a human wrote the file.
+
+\paragraph{LLM judges miss most confirmed AI involvement.} Table~\ref{tab:llm-vs-provenance} compares every LLM labeling run with the provenance labels. Apart from Gemini run 1, which labels 92\% of all files as AI-assisted, the runs flag only 32--49\% of specifications with direct evidence, and in every run the specifications without evidence are flagged at a similar or higher rate. Changing the prompt moved the share of files labeled AI-assisted from 26\% to 92\% without improving the separation between the groups. The Claude and Gemini runs agree with each other (Cohen's $\kappa = 0.67$ on 331 specifications) far more than either agrees with provenance, which suggests that both respond to the same surface features rather than to authorship.
+
+\begin{table}[ht]
+\centering
+\caption{LLM labeling runs compared with commit provenance (preliminary).}
+\label{tab:llm-vs-provenance}
+\begin{tabular}{lrrrr}
+\toprule
+Labeling run & Specs & Labeled AI & Not Labeled AI \\
+\midrule
+Claude (rubric prompt) & 335 & 26\% & 74\% \\
+Gemini (favor non-AI) & 280 & 37\% & 63\% \\
+Gemini (simple prompt) & 332 & 92\% & 8\%\\
+Gemini (less confidence) & 332 & 39\% & 61\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Cross-validated comparison.} We then treated direct evidence (positive) versus no evidence (negative) as the target and scored every specification out-of-fold using stratified 5-fold cross-validation repeated 10 times; each repository contributes one specification, so folds are repository-disjoint. LLM judges were scored on the same specifications with no training, using their confidence as a score. Table~\ref{tab:provenance-cv} reports ROC AUC with 95\% bootstrap intervals and balanced accuracy at a 0.5 threshold, in two settings: all 177 specifications (117 direct, 60 none), and only the 89 specifications at ordinary paths such as \texttt{specs/} or \texttt{docs/} (29 direct, 60 none). The second setting removes spec-tool formats such as OpenSpec and Caffeine, which appear only in the direct-evidence group.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Detecting commit-level AI involvement from the specification text (preliminary). AUC with 95\% bootstrap interval, and balanced accuracy (Bal.).}
+\label{tab:provenance-cv}
+\begin{tabular}{lcccccc}
+\toprule
+& \multicolumn{3}{c}{All specifications ($n=177$)} & \multicolumn{3}{c}{Ordinary paths only ($n=89$)} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Method & AUC & 95\% CI & Bal. & AUC & 95\% CI & Bal. \\
+\midrule
+Logistic regression, all features & 0.74 & 0.68--0.82 & 0.67 & 0.49 & 0.36--0.63 & 0.50 \\
+Random forest, all features & 0.76 & 0.69--0.84 & 0.70 & 0.45 & 0.30--0.55 & 0.44 \\
+Logistic regression, length only & 0.64 & 0.58--0.75 & 0.61 & 0.40 & 0.24--0.48 & 0.43 \\
+Logistic regression, no length or format & 0.72 & 0.65--0.81 & 0.68 & 0.49 & 0.35--0.63 & 0.51 \\
+Naive Bayes, character n-grams & 0.76 & 0.68--0.84 & 0.52 & 0.54 & 0.40--0.68 & 0.50 \\
+Logistic regression, n-grams + \texttt{n\_words} & 0.77 & 0.70--0.86 & 0.68 & 0.60 & 0.48--0.75 & 0.60 \\
+\midrule
+Claude (rubric prompt) & 0.44 & 0.35--0.52 & 0.46 & 0.62 & 0.49--0.73 & 0.61 \\
+Gemini (simple prompt) & 0.51 & 0.42--0.60 & 0.54 & 0.52 & 0.40--0.64 & 0.50 \\
+Gemini (less confidence) & 0.52 & 0.42--0.61 & 0.45 & 0.51 & 0.37--0.65 & 0.48 \\
+Gemini (favor non-AI) & 0.46 & 0.37--0.55 & 0.43 & 0.61 & 0.47--0.74 & 0.55 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Findings.} Across all specifications the classifiers reach an AUC of 0.64--0.77, but this signal comes from recognizing spec-tool formats: on format-matched specifications every classifier falls to 0.40--0.60, and every interval includes 0.5. The LLM judges are at or near chance in both settings (0.44--0.62). Claude scores below chance on all specifications because its prompt treats requirements formats such as OpenSpec scenarios as human conventions. Taken together, these results suggest that neither LLM judges nor supervised text classifiers recover confirmed AI involvement from the text of a specification. The classifier results reported earlier in this section, which reached an AUC near 0.9, measure agreement with LLM-assigned labels and should be read in that light.
+
+\paragraph{Limitations of this analysis.} The format-matched setting has only 29 positive specifications, so its intervals are about $\pm 0.13$ wide; the results rule out a strong signal but not a weak one. The negative class is ``no evidence'' rather than verified human authorship, and a co-author trailer shows that an agent took part in the commit, not that it wrote every line. AUCs below 0.5 in the format-matched setting are within noise and should not be interpreted. A set of specifications committed before the release of ChatGPT (November 30, 2022) would provide verified human negatives; SpecMine contains none, since every file was first committed in 2024--2026. Blind human labels for 80 specifications (40 direct, 40 none) are in progress and will be compared with the LLM judges on the same files.
+
 \section{Discussion}
 \subsection{Key Findings and Trade-offs}
 
